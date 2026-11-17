@@ -43,6 +43,11 @@ Known limits:
 - Not ported yet from the RE_Kenshi version: Fisheye, the Cinematic zoom lock and its caption, the Diorama look's toy colours.
 - Texts in English, Russian, Chinese and Japanese (machine translations, not yet checked by native speakers).
 
+## Planned
+Ideas, no dates:
+- The parts of the RE_Kenshi version not ported yet: **Fisheye**, the **Cinematic zoom lock** with its caption, the Diorama look's toy colours.
+- Working with Meitou's developers so the camera can hook in cleanly, and perhaps some of these views become built-in camera options.
+
 ## Reporting a bug
 Which camera, what you saw (a screenshot helps), how to make it happen again, your Meitou version and mod list, and Meitou's `log.txt` (in
 your Meitou folder) copied right after that session. Our lines start with `pza.camera`. Post it in its thread on the Meitou Discord or in the Workshop page's Bug reports discussion.
