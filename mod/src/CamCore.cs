@@ -62,7 +62,8 @@ public static class CamCore
     /// <summary>The vertical lens drawn (radians), from the game's lens.</summary>
     public static float Fov(Cam c, CamSettings s, float gameFov, bool wide)
     {
-        if (LensDeg(c, s) is { } lens) return (float)Math.Clamp(lens, 1, 120) * Deg;
+        // Math.Clamp keeps a NaN: a lens that is not a number is the game's 50 (fuzz 2026-11-18)
+        if (LensDeg(c, s) is { } lens) return (float)(double.IsFinite(lens) ? Math.Clamp(lens, 1, 120) : 50) * Deg;
         return wide && c != Cam.Off ? WideFov(gameFov, s.WideZoom) : gameFov;
     }
 
@@ -125,6 +126,7 @@ public static class CamCore
     {
         // the camera's right on the ground (Meitou FollowFocus): it looks along (-sin yaw, 0, -cos yaw)
         var right = new System.Numerics.Vector3(MathF.Cos(yaw), 0, -MathF.Sin(yaw));
+        if (!double.IsFinite(pct)) pct = 0;   // fuzz 2026-11-18: a NaN amount went through the clamp and made the whole view NaN
         return right * (float)(-Math.Clamp(pct, -50, 50) / 100.0 * zoomDistance);
     }
 

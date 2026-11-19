@@ -1,4 +1,4 @@
-# PZA's Camera for Meitou (beta 0.3.0)
+# PZA's Camera for Meitou (beta 0.3.1)
 
 Thirteen ready-made camera looks for Meitou, one click each: Diorama, Isometric, Top-down, Side view, Hip level, Turntable, Chase, Cinematic
 and more, with Off-centre, Dutch angle and a 0.5x lens on top. Click the active camera again and you are back to Meitou's own. A port of
@@ -26,16 +26,16 @@ it, mouse wheel for its opacity. Tabs:
 Everything is also in **Settings > Mods > PZA's Camera** and is kept after a restart.
 
 ## Requires
-**Meitou 0.20.1 up to 0.21.x.** It refuses to load on other Meitou versions. The Tilt-Shift buttons need **PZA's Looks for Meitou** (also
+**Meitou 0.20.1 and newer.** Checked on Meitou 0.20.1, 0.21.0 and 0.22.1; there is no upper version cap any more, so a newer Meitou no longer refuses it. The Tilt-Shift buttons need **PZA's Looks for Meitou** (also
 in this beta); without it they are greyed out.
 
 ## Install
-- Unpack `PZACamera.Meitou-0.3.0-beta.zip` into Kenshi's folder (`Kenshi\mods\PZACamera\`), then tick **PZACamera**
+- Unpack `PZACamera.Meitou-0.3.1-beta.zip` into Kenshi's folder (`Kenshi\mods\PZACamera\`), then tick **PZACamera**
   in Meitou's mod list. If you also use PZA's Camera for RE_Kenshi, it is the same folder on purpose: each game loads only its own file.
 - No items or world data; load order doesn't matter. Safe to remove at any time.
 
 ## This is a beta
-**This build has passed its offline checks on Meitou 0.20.1 and 0.21.0 (every camera, the window clicked through, the text fitting in four
+**This build has passed its offline checks on Meitou 0.20.1, 0.21.0 and 0.22.1 (every camera, the window clicked through, the text fitting in four
 languages), but it has not been played in game yet.** Your first impressions are exactly what we need.
 
 Known limits:
