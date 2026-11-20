@@ -22,7 +22,7 @@ public static class CamWindow
     public static PzaTinyButton Tiny = null!;
     public static readonly string[] Extras = [nameof(CamSettings.OffCentre), nameof(CamSettings.Dutch), nameof(CamSettings.WideLens)];
     /// <summary>0.3.0: the VIEW tab's on / off buttons.</summary>
-    public static readonly string[] ViewToggles = [nameof(CamSettings.ZoomStops), nameof(CamSettings.KeepInView)];
+    public static readonly string[] ViewToggles = [nameof(CamSettings.ZoomStops), nameof(CamSettings.KeepInView), nameof(CamSettings.CinematicZoomLock)];
 
     /// <summary>0.2.1: the window's height (fraction of the screen) and the lowest its bottom may sit. Meitou opens a PZA window centred, and
     /// the game's bottom HUD (Kenshi_MainPanel.layout: FloorPanel from 0.657, the message box MessagePanel from 0.713, where Meitou shows its
@@ -81,7 +81,9 @@ public static class CamWindow
             view.Add(L.Button("Plus_" + k, 0.61, y, 0.09, 0.072));
             view.Add(L.Button("Reset_" + k, 0.71, y, 0.26, 0.072));
         }
-        view.Add(L.Button("Look", 0.03, 0.69, 0.94, 0.075));
+        view.Add(L.Button("Look", 0.03, 0.69, 0.455, 0.075));
+        view.Add(L.Button("Fish", 0.515, 0.69, 0.455, 0.075));   // 0.4.1: the plugin's Fisheye button
+        view.Add(L.Button("Tog_CinematicZoomLock", 0.03, 0.79, 0.94, 0.075));   // 0.4.0
 
         return L.Doc(L.WindowMin("Root", "PZA'S CAMERA", 0.35, (1 - WindowH) / 2, 0.30, WindowH,
             L.Tabs("Tabs", 0.03, 0.02, 0.94, 0.95,
@@ -172,10 +174,11 @@ public static class CamWindow
         foreach (var c in Enum.GetValues<Cam>())
         {
             string n = "Cam_" + c;
-            names.Add(n);
+            bool hidden = !Driver.Settings.Isometric && CamCore.Hideable(c);   // 0.4.0: the plugin's Isometric=0
+            if (!hidden) names.Add(n);
             bool active = c == Driver.Current || (c == Cam.Off && Driver.Current == Cam.Off);
             b.Text[n] = active ? Strings.TF("active", Strings.CamName(c)) : Strings.CamName(c);
-            PzaWindow.Tooltip(b, n, Strings.T("tip." + c));
+            PzaWindow.Tooltip(b, n, Strings.T(hidden ? "tip.hidden" : "tip." + c));
         }
         foreach (var k in Extras.Concat(ViewToggles))
         {
@@ -212,6 +215,10 @@ public static class CamWindow
         b.Text["Look"] = Strings.T(Driver.LookOn ? "look.on" : "look.off");
         PzaWindow.Tooltip(b, "Look", Strings.T(ts is null ? "ts.missing" : "tip.look"));
         if (ts is not null || Driver.LookOn) names.Add("Look");
+        string? fish = LooksLink.Fisheye;
+        b.Text["Fish"] = Strings.T(fish is not null && fish != "Off" ? "fish.on" : "fish.off");
+        PzaWindow.Tooltip(b, "Fish", Strings.T(fish is null ? "fish.missing" : "tip.fish"));
+        if (fish is not null) names.Add("Fish");
         foreach (var r in Rows.All.Concat(Rows.View))
         {
             b.Text["Lb_" + r.Key] = Strings.TF("row." + r.Key, Value(r.Key));
@@ -227,7 +234,7 @@ public static class CamWindow
         names.Add("ResetAll");
         b.Text["ResetAll"] = Strings.T("btn.resetall");
         PzaWindow.Enable(b, [.. names]);
-        Window.Paragraphs(b, "lstHelp", string.Join("\n\n", Enumerable.Range(1, 10).Select(i => Strings.T("help." + i))));
+        Window.Paragraphs(b, "lstHelp", string.Join("\n\n", Enumerable.Range(1, 12).Select(i => Strings.T("help." + i))));
     }
 
     static void OnEvent(MyGuiEvent e)
@@ -245,6 +252,7 @@ public static class CamWindow
             case "ZsFar": Driver.Queue(() => Driver.SaveStop(2, "window Far"), "window " + a); break;
             case "ZsReset": Driver.Queue(() => Driver.SaveStop(-1, "window Reset stops"), "window " + a); break;
             case "Look": Driver.Queue(() => Driver.ToggleLook("window"), "window " + a); break;
+            case "Fish": Driver.Queue(() => Driver.ToggleFisheye("window"), "window " + a); break;
             case "Ts":
                 // on the interface thread, as PZA's Looks asks; its pass reads the value at the next frame
                 if (LooksLink.Buttons.FirstOrDefault(x => x.Button == a) is { Name: { } n }) LooksLink.Set(n, "window");

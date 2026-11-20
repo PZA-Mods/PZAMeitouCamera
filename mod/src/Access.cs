@@ -91,6 +91,24 @@ public static class Access
     public static global::Meitou.Simulation.CharacterId? Follow(object player) => (global::Meitou.Simulation.CharacterId?)s_follow.GetValue(player);
 
     public static bool HasNotice => s_notice is not null;
+
+    /// <summary>0.4.0: GameHost.NpcRange (private float): the character draw distance, the renderer's slider or settings.cfg's npc range (Meitou
+    /// 0.20.1 - 0.22: characters are drawn only within it of the camera's eye). Optional: without it the long-lens guard stays off (logged).</summary>
+    static PropertyInfo? s_npcRange;
+    static bool s_npcLooked;
+    public static float? NpcRange(object host)
+    {
+        if (!s_npcLooked)
+        {
+            s_npcLooked = true;
+            s_npcRange = AccessTools.Property(GameHost, "NpcRange");
+            if (s_npcRange?.PropertyType != typeof(float)) s_npcRange = null;
+            Log.Line(s_npcRange is null ? "GameHost.NpcRange not found: the long-lens cameras are not kept inside the character draw distance"
+                                        : "GameHost.NpcRange found: the long-lens cameras keep the characters drawn");
+        }
+        try { return s_npcRange?.GetValue(host) is float r && float.IsFinite(r) ? r : null; }
+        catch (Exception e) { Log.Exception("NpcRange", e); return null; }
+    }
     public static void Notice(object player, string text) => s_notice!.Invoke(player, [text, false, null]);
 
     #region PZA's WASD Control (optional, read only)

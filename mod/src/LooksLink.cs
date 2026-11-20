@@ -19,8 +19,11 @@ public static class LooksLink
         [("Ts_Off", "Off"), ("Ts_Miniature", "PZA Miniature"), ("Ts_HD2D", "PZA HD-2D"), ("Ts_Diorama", "PZA Diorama")];
 
     static Type? s_api;
-    static PropertyInfo? s_current, s_names;
-    static MethodInfo? s_set;
+    static PropertyInfo? s_current, s_names, s_fish;
+    static MethodInfo? s_set, s_fishSet;
+    /// <summary>0.4.1: PZA's Looks 0.3.0's LooksApi version 2 adds the fisheye (FisheyeNames, Fisheye, SetFisheye).</summary>
+    public const int FisheyeVersion = 2;
+    public const string FisheyeOn = "PZA Fisheye";
     static long s_lastLook;
     static bool s_logged;
 
@@ -39,7 +42,7 @@ public static class LooksLink
     }
 
     /// <summary>Forgets what was found (the offline check, between "missing" and "loaded").</summary>
-    public static void Reset() { s_api = null; s_current = s_names = null; s_set = null; s_lastLook = 0; s_logged = false; }
+    public static void Reset() { s_api = null; s_current = s_names = s_fish = null; s_set = s_fishSet = null; s_lastLook = 0; s_logged = false; }
 
     static void Find()
     {
@@ -63,6 +66,13 @@ public static class LooksLink
         }
         if (!ok) return;
         (s_api, s_current, s_names, s_set) = (t, current, names, set);
+        if (version >= FisheyeVersion)
+        {
+            var fish = t.GetProperty("Fisheye", BindingFlags.Public | BindingFlags.Static);
+            var fishSet = t.GetMethod("SetFisheye", BindingFlags.Public | BindingFlags.Static, [typeof(string)]);
+            if (fish?.PropertyType == typeof(string) && fishSet?.ReturnType == typeof(bool)) (s_fish, s_fishSet) = (fish, fishSet);
+            Log.Line(s_fish is null ? "PZA's Looks' LooksApi 2 lacks Fisheye / SetFisheye: the Fisheye button stays disabled" : "PZA's Looks has the fisheye: the Fisheye button works");
+        }
     }
 
     /// <summary>The Tilt-Shift now ("Off", "PZA Miniature", ...), or null without PZA's Looks.</summary>
@@ -78,6 +88,31 @@ public static class LooksLink
 
     /// <summary>PZA's Looks' own names (to check the buttons match them).</summary>
     public static string[] Names => Available && s_names!.GetValue(null) is string[] n ? n : [];
+
+    /// <summary>The fisheye now ("Off", "PZA Fisheye", ...), or null without PZA's Looks 0.3.0 (LooksApi 2).</summary>
+    public static string? Fisheye
+    {
+        get
+        {
+            if (!Available || s_fish is null) return null;
+            try { return s_fish.GetValue(null) as string; }
+            catch (Exception e) { Log.Exception("LooksApi.Fisheye", e); return null; }
+        }
+    }
+
+    /// <summary>Sets the fisheye by name ("Off" turns it off); false without it or for an unknown name.</summary>
+    public static bool SetFisheye(string name, string from)
+    {
+        if (!Available || s_fishSet is null) { Counters.Add("fisheye.no_looks"); return false; }
+        try
+        {
+            bool ok = (bool)s_fishSet.Invoke(null, [name])!;
+            Counters.Add(ok ? "fisheye.set" : "fisheye.unknown_name");
+            Log.Line(ok ? $"Fisheye {name} ({from})" : $"PZA's Looks does not know Fisheye '{name}' ({from})");
+            return ok;
+        }
+        catch (Exception e) { Log.Exception("LooksApi.SetFisheye", e); return false; }
+    }
 
     /// <summary>Sets the Tilt-Shift by name; false without PZA's Looks or for a name it does not know.</summary>
     public static bool Set(string name, string from)

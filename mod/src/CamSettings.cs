@@ -21,6 +21,18 @@ public sealed class CamSettings
     [Setting("Diorama lens", Hint = "Diorama's own lens in degrees (a little wider than the game's 50 for strong tabletop perspective). 0 = the game's.", Min = 0, Max = 90, Step = 1)]
     public double DioramaFov { get; set; } = 55;
 
+    [Setting("Tilt range", Hint = "Degrees you may still tilt Diorama and Diorama Low around their tilt with the mouse (0 = locked).", Min = 0, Max = 40, Step = 1)]
+    public double TiltRange { get; set; }
+
+    [Setting("Lens", Hint = "The vertical lens in degrees for the cameras without their own (0 = the game's own, 50). Smaller = flatter and more miniature.", Min = 0, Max = 120, Step = 1)]
+    public double Fov { get; set; }
+
+    [Setting("Nearest zoom", Hint = "While a PZA camera is on, the camera comes no nearer than this (boom distance; 0 = no limit).", Min = 0, Max = 2000, Step = 5)]
+    public double ZoomMin { get; set; }
+
+    [Setting("Farthest zoom", Hint = "While a PZA camera is on, the camera goes no farther than this (boom distance; 0 = no limit).", Min = 0, Max = 2000, Step = 5)]
+    public double ZoomMax { get; set; }
+
     [Setting("Tilt ease", Hint = "How fast the camera eases to a camera's tilt (per second; 0 = at once).", Min = 0, Max = 20, Step = 0.5)]
     public double TiltEase { get; set; } = 4;
 
@@ -45,6 +57,16 @@ public sealed class CamSettings
 
     [Setting("Dutch angle degrees", Hint = "How far it rolls (negative = the other way).", Min = -30, Max = 30, Step = 1)]
     public double DutchDeg { get; set; } = 8;
+
+    // ---- 0.4.0: the long-lens cameras (the plugin's Isometric=0, NpcRangeGuard, LensBreathe)
+    [Setting("Long-lens cameras", Hint = "Off hides Isometric, Pixel Isometric and Side view (they share the long-lens trick), also from Cinematic.")]
+    public bool Isometric { get; set; } = true;
+
+    [Setting("Keep characters drawn", Hint = "The long-lens cameras sit far back; the game draws characters only within its character draw distance of the camera. On: the camera stays inside it.")]
+    public bool NpcRangeGuard { get; set; } = true;
+
+    [Setting("Widen the lens past it", Hint = "On: past the draw distance the camera stays there and the lens widens, so the zoom keeps working. Off: the zoom stops there.", VisibleWhen = nameof(NpcRangeGuard))]
+    public bool LensBreathe { get; set; } = true;
 
     // ---- Isometric, Pixel Isometric
     [Setting("Isometric tilt", Hint = "Degrees below the horizon.", Min = 10, Max = 85, Step = 1)]
@@ -136,6 +158,9 @@ public sealed class CamSettings
 
     [Setting("Cinematic messages", Hint = "A message at every camera change while Cinematic plays (off: only when it starts).")]
     public bool CinematicPopups { get; set; }
+
+    [Setting("Cinematic zoom lock", Hint = "While Cinematic plays, each camera sits at its Mid zoom stop and the wheel can't change it.")]
+    public bool CinematicZoomLock { get; set; }
 
     [Setting("Cinematic includes Hip level", Hint = "Left out by default: it is the close cape clip shot.")]
     public bool CinematicHipLevel { get; set; }

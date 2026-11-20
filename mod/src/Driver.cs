@@ -113,12 +113,18 @@ public static class Driver
     /// <summary>Switches to a camera; the active one again turns the camera off (the plugin's menu).</summary>
     public static void Pick(Cam c, string from)
     {
+        if (!Settings.Isometric && CamCore.Hideable(c))
+        {
+            Counters.Add("pick.hidden");
+            Log.Line($"camera {c} is hidden (Settings > Mods > Long-lens cameras is off) ({from})");
+            return;
+        }
         if (c == Current && c != Cam.Off) c = Cam.Off;
         var was = Current;
         Current = c;
         if (c == Cam.Cinematic)
         {
-            s_cine = CamCore.Playlist(Settings.CinematicHipLevel)[0];
+            s_cine = CamCore.Playlist(Settings.CinematicHipLevel, Settings.Isometric)[0];
             s_cineLeft = Settings.CinematicSeconds;
         }
         Array.Fill(s_zsIdx, -1);
@@ -170,6 +176,27 @@ public static class Driver
         if (Current != Cam.Diorama) Pick(Cam.Diorama, from + ", Diorama look");
         Counters.Add("look.on");
         Log.Line($"Diorama look on ({from}; tilt-shift was {s_lookPrevTs})");
+    }
+
+    static bool s_fishPrevWide;
+
+    /// <summary>0.4.1, the plugin's Fisheye button (v0.14.0): PZA's Looks' fisheye on together with the 0.5x lens (its lens is the chain's own,
+    /// so the 0.5x lens widens it as on Kenshi); with the camera Off that picks Free. Off: the fisheye off and the 0.5x lens back as it was.</summary>
+    public static void ToggleFisheye(string from)
+    {
+        if (LooksLink.Fisheye is not { } now) { Counters.Add("fisheye.no_looks"); Log.Line("Fisheye: needs PZA's Looks 0.3.0 or newer (" + from + ")"); return; }
+        if (now == "Off")
+        {
+            if (!LooksLink.SetFisheye(LooksLink.FisheyeOn, from)) return;
+            s_fishPrevWide = Settings.WideLens;
+            if (!Settings.WideLens) ToggleExtra(nameof(CamSettings.WideLens), from + ", Fisheye");
+            else if (Current == Cam.Off) Pick(Cam.Free, from + ", Fisheye");
+            Counters.Add("fisheye.on");
+            return;
+        }
+        LooksLink.SetFisheye("Off", from);
+        if (!s_fishPrevWide && Settings.WideLens) ToggleExtra(nameof(CamSettings.WideLens), from + ", Fisheye off");
+        Counters.Add("fisheye.off");
     }
 
     static void EndLook(string why)
@@ -316,6 +343,7 @@ public static class Driver
         }
 
         Ground = session.Camera.GroundAt;
+        NpcRange = Access.NpcRange(host);
         string? why = Current == Cam.Off ? null : Why(cam, session, applied);
         SetStandDown(why);
         if (Current == Cam.Off || why is not null)
@@ -357,14 +385,21 @@ public static class Driver
         var eff = Effective;
         // the game's lens: whatever is there unless it is still the one we wrote last frame (the game's own change is kept)
         if (float.IsNaN(s_ourFov) || cam.FieldOfView != s_ourFov) s_gameFov = cam.FieldOfView;
-        float gameFov = s_gameFov;
+        float baseFov = BaseFov;   // 0.4.0: the plugin's Fov (a lens for the cameras without their own), else the game's
 
         if (float.IsNaN(s_pitch)) s_pitch = cam.Pitch;
-        s_pitch = CamCore.Tilt(eff, Settings) is { } tilt ? CamCore.Ease(s_pitch, CamCore.Pitch(tilt), Settings.TiltEase, dt) : cam.Pitch;
+        if (CamCore.Tilt(eff, Settings) is { } tilt)
+        {   // 0.4.0: TiltRange (the plugin's, Diorama and Diorama Low): the player's own tilt kept within the camera's tilt +- range
+            float want = CamCore.Pitch(tilt);
+            if (eff is Cam.Diorama or Cam.DioramaLow) want = CamCore.TiltWithin(cam.Pitch, want, Settings.TiltRange);
+            s_pitch = CamCore.Ease(s_pitch, want, Settings.TiltEase, dt);
+        }
+        else s_pitch = cam.Pitch;
 
-        float fov = CamCore.Fov(eff, Settings, gameFov, Settings.WideLens);
+        float fov = CamCore.Fov(eff, Settings, baseFov, Settings.WideLens);
         float zoom = eff == Cam.HipLevel ? MathF.Min(cam.Distance, (float)Settings.HipZoomMax) : cam.Distance;
-        float distance = zoom * CamCore.DistanceFactor(eff, gameFov, fov);
+        fov = GuardLens(eff, ref zoom, fov, baseFov);
+        float distance = zoom * CamCore.DistanceFactor(eff, baseFov, fov);
         var point = cam.Target;
         var target = Settings.OffCentre ? point + CamCore.OffCentre(cam.Yaw, zoom, Settings.ShiftLeftPct) : point;
 
@@ -380,6 +415,44 @@ public static class Driver
         cam.Roll = s_ourRoll;
         Counters.Add("drawn." + eff);
         Publish(cam, point, eff.ToString());
+    }
+
+    /// <summary>The character draw distance (GameHost.NpcRange), read each frame; null = unknown (the guard stays off). The offline check sets it.</summary>
+    public static float? NpcRange;
+    static int s_breathing = -1;
+    static long s_capCount;
+
+    /// <summary>The lens the cameras without their own use: the plugin's Fov setting when set, else the game's (50 before the first frame).</summary>
+    public static float BaseFov => Settings.Fov >= 1 ? (float)Math.Clamp(Settings.Fov, 10, 120) * CamCore.Deg : float.IsNaN(s_gameFov) ? 50 * CamCore.Deg : s_gameFov;
+
+    /// <summary>0.4.0, the plugin's NpcRangeGuard (v0.15.0) and LensBreathe (v0.21.0): a long-lens camera's eye kept within 97% of the character
+    /// draw distance. Breathe on: past it the eye stays there and the lens widens, so the zoom keeps working; off: the zoom stops there. Returns
+    /// the lens to draw; <paramref name="zoom"/> is capped. Falsifier in the log: while widened, the planned eye distance equals the limit.</summary>
+    public static float GuardLens(Cam eff, ref float zoom, float fov, float f0)
+    {
+        if (!CamCore.LongLens(eff) || !Settings.NpcRangeGuard || NpcRange is not { } r || !(r > 100)) return fov;
+        double limit = CamCore.NpcRangeShare * r;
+        float lens = fov;
+        if (Settings.LensBreathe)
+        {
+            fov = CamCore.BreatheLens(zoom, lens, f0, limit);
+            int on = fov > lens + 1e-4f ? 1 : 0;
+            if (on != s_breathing)
+            {
+                if (on == 1) Log.Line($"long lens widened on {eff}: zoom {zoom:0} would put the camera at {CamCore.LensDistance(zoom, lens, f0):0}, past the character draw distance {r:0}; camera held at {limit:0}, lens {lens / CamCore.Deg:0.#} -> {fov / CamCore.Deg:0.#} degrees (planned distance {CamCore.LensDistance(zoom, fov, f0):0})");
+                else if (s_breathing == 1) Log.Line($"long lens back to {lens / CamCore.Deg:0.#} degrees on {eff} (zoom {zoom:0}, the camera inside the draw distance)");
+                s_breathing = on;
+            }
+            if (on == 1) Counters.Add("lens.widened");
+        }
+        double cap = CamCore.ZoomCap(limit, fov, f0);
+        if (cap > 1 && zoom > cap)
+        {
+            if (s_capCount++ % 600 == 0) Log.Line($"zoom {zoom:0} capped to {cap:0} on {eff}: the game draws characters only within {r:0} of the camera");
+            Counters.Add("lens.zoom_capped");
+            zoom = (float)cap;
+        }
+        return fov;
     }
 
     /// <summary>Keep in view (the plugin's v0.17.0 / v0.17.2): decides 15 times a second against the ground (<see cref="Ground"/>), and the shown
@@ -436,7 +509,7 @@ public static class Driver
     {
         s_cineLeft -= dt;
         if (s_cineLeft > 0) return;
-        s_cine = CamCore.NextInPlaylist(s_cine, Settings.CinematicHipLevel);
+        s_cine = CamCore.NextInPlaylist(s_cine, Settings.CinematicHipLevel, Settings.Isometric);
         s_cineLeft = Math.Max(1, Settings.CinematicSeconds);
         Counters.Add("cinematic.next");
         Log.Line("Cinematic: " + s_cine);
@@ -465,14 +538,45 @@ public static class Driver
             Counters.Add("turn." + Effective);
         }
         PinZoom(strat);
+        BandZoom(strat);
+    }
+
+    /// <summary>0.4.0: the plugin's ZoomMin / ZoomMax while a PZA camera is on, and NpcRangeGuard without LensBreathe (the zoom itself capped at the
+    /// draw distance, as the plugin did). On the rig, so the wheel feels the end.</summary>
+    public static void BandZoom(StrategyCamera strat)
+    {
+        if (Current == Cam.Off) return;
+        float d = strat.Distance, want = d;
+        if (Settings.ZoomMin > 0 && want < Settings.ZoomMin) want = (float)Settings.ZoomMin;
+        if (Settings.ZoomMax > 0 && want > Settings.ZoomMax) want = (float)Settings.ZoomMax;
+        var eff = Effective;
+        if (CamCore.LongLens(eff) && Settings.NpcRangeGuard && !Settings.LensBreathe && NpcRange is { } r && r > 100)
+        {
+            float f0 = BaseFov;
+            double cap = CamCore.ZoomCap(CamCore.NpcRangeShare * r, CamCore.Fov(eff, Settings, f0, false), f0);
+            if (cap > 1 && want > cap) want = (float)cap;
+        }
+        if (MathF.Abs(want - d) <= 1e-3f) return;
+        strat.Place(strat.PivotXz, strat.Yaw, strat.Pitch, want);
+        Counters.Add("zoom.band");
     }
 
     /// <summary>Zoom stops (the plugin's v0.15.0): the boom pinned to the camera's current stop; a wheel notch that moves it past the tolerance
-    /// steps one stop that way. Not in Cinematic (the plugin's own Cinematic zoom lock is not ported).</summary>
+    /// steps one stop that way. In Cinematic, the plugin's Cinematic zoom lock (v0.16.0, 0.4.0 here): each camera sits at its Mid stop and the
+    /// wheel can't change it; without the lock the zoom is free there.</summary>
     public static void PinZoom(StrategyCamera strat)
     {
         var eff = Effective;
-        if (!Settings.ZoomStops || Current == Cam.Cinematic || !ZoomStops.Has(eff)) return;
+        if (Current == Cam.Cinematic)
+        {
+            if (!Settings.CinematicZoomLock || !ZoomStops.Has(eff)) return;
+            float mid = (float)StopsFor(eff)[1];
+            if (MathF.Abs(strat.Distance - mid) <= 1e-3f) return;
+            strat.Place(strat.PivotXz, strat.Yaw, strat.Pitch, mid);
+            Counters.Add("cinematic.zoom_locked");
+            return;
+        }
+        if (!Settings.ZoomStops || !ZoomStops.Has(eff)) return;
         var stops = StopsFor(eff);
         int was = s_zsIdx[(int)eff], idx = ZoomStops.Step(stops, was, strat.Distance);
         s_zsIdx[(int)eff] = idx;

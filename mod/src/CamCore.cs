@@ -71,6 +71,44 @@ public static class CamCore
     public static float DistanceFactor(Cam c, float gameFov, float fov) =>
         LongLens(c) && fov > 0 && fov < gameFov ? MathF.Tan(gameFov / 2) / MathF.Tan(fov / 2) : 1;
 
+    // ---- 0.4.0: long lens at the character draw distance (the plugin's NpcRangeGuard v0.15.0 and LensBreathe v0.21.0, src/LensMath.h).
+    // Meitou, like Kenshi, draws characters only within npc range of the camera's eye (GameHost.NpcRange: the character renderer's draw
+    // distance slider, else settings.cfg's npc range, 3250 when missing). A long-lens camera sits zoom x tan(f0/2) / tan(lens/2) from the point
+    // it looks at, so a far zoom put the eye past that range and the characters vanished.
+
+    /// <summary>The share of npc range the eye may reach (the plugin's 0.97: a margin for characters a little beyond the point looked at).</summary>
+    public const double NpcRangeShare = 0.97;
+
+    /// <summary>The real camera distance for a zoom and a lens: zoom x tan(f0/2) / tan(lens/2).</summary>
+    public static double LensDistance(double zoom, float lens, float f0) =>
+        zoom * Math.Tan(f0 / 2.0) / Math.Tan(Math.Clamp(lens, 1 * Deg, 170 * Deg) / 2.0);
+
+    /// <summary>LensBreathe: the lens to draw so the eye stays within <paramref name="limit"/>: the camera's own lens while it fits, else
+    /// 2 atan(zoom tan(f0/2) / limit), never narrower than the camera's lens and never wider than f0 (at f0 the eye is at the zoom itself; the
+    /// caller's cap holds it). limit &lt;= 0 = no limit.</summary>
+    public static float BreatheLens(double zoom, float lens, float f0, double limit)
+    {
+        if (!(f0 > 1 * Deg) || !(f0 < 170 * Deg)) f0 = 50 * Deg;
+        if (!(lens > 0)) return f0;
+        lens = Math.Clamp(lens, 1 * Deg, f0);
+        if (!(limit > 0) || !(zoom > 0) || zoom > 1e7 || limit > 1e7) return lens;
+        double t0 = Math.Tan(f0 / 2.0);
+        if (zoom * t0 / Math.Tan(lens / 2.0) <= limit) return lens;
+        return (float)Math.Clamp(2 * Math.Atan(zoom * t0 / limit), lens, f0);
+    }
+
+    /// <summary>NpcRangeGuard: the largest zoom that keeps the eye within <paramref name="limit"/> at a lens (the plugin's cap).</summary>
+    public static double ZoomCap(double limit, float lens, float f0) =>
+        limit * Math.Tan(Math.Clamp(lens, 1 * Deg, 170 * Deg) / 2.0) / Math.Tan(Math.Clamp(f0, 1 * Deg, 170 * Deg) / 2.0);
+
+    /// <summary>TiltRange (the plugin's, Diorama and Diorama Low): the player's own tilt kept within the camera's tilt +- range (radians).</summary>
+    public static float TiltWithin(float playerPitch, float tilt, double rangeDeg)
+    {
+        if (!(rangeDeg > 0) || !float.IsFinite(playerPitch)) return tilt;
+        float r = (float)Math.Min(rangeDeg, 40) * Deg;
+        return Math.Clamp(playerPitch, tilt - r, tilt + r);
+    }
+
     /// <summary>An angle into (-pi, pi].</summary>
     public static float Wrap(float a)
     {
@@ -130,14 +168,17 @@ public static class CamCore
         return right * (float)(-Math.Clamp(pct, -50, 50) / 100.0 * zoomDistance);
     }
 
-    /// <summary>Cinematic's playlist: every camera but Off, Free, Cinematic itself and (unless asked) Hip level.</summary>
-    public static Cam[] Playlist(bool hipLevel) =>
-        [.. Enum.GetValues<Cam>().Where(c => c is not (Cam.Off or Cam.Free or Cam.Cinematic) && (hipLevel || c != Cam.HipLevel))];
+    /// <summary>The cameras the plugin's <c>Isometric=0</c> hides (they share the long-lens trick): Isometric, Pixel Isometric, Side view.</summary>
+    public static bool Hideable(Cam c) => c is Cam.Isometric or Cam.PixelIsometric or Cam.SideView;
+
+    /// <summary>Cinematic's playlist: every camera but Off, Free, Cinematic itself, (unless asked) Hip level and (when hidden) the long-lens ones.</summary>
+    public static Cam[] Playlist(bool hipLevel, bool longLens = true) =>
+        [.. Enum.GetValues<Cam>().Where(c => c is not (Cam.Off or Cam.Free or Cam.Cinematic) && (hipLevel || c != Cam.HipLevel) && (longLens || !Hideable(c)))];
 
     /// <summary>The camera after <paramref name="c"/> in Cinematic's playlist.</summary>
-    public static Cam NextInPlaylist(Cam c, bool hipLevel)
+    public static Cam NextInPlaylist(Cam c, bool hipLevel, bool longLens = true)
     {
-        var list = Playlist(hipLevel);
+        var list = Playlist(hipLevel, longLens);
         int i = Array.IndexOf(list, c);
         return list[(i + 1) % list.Length];
     }
