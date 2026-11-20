@@ -1,4 +1,4 @@
-# PZA's Director's Kit for Meitou (beta 0.4.1)
+# PZA's Director's Kit for Meitou (beta 0.5.0)
 
 **PZA's Director's Kit** (formerly PZA's Camera): thirteen ready-made camera looks for Meitou, one click each: Diorama, Isometric, Top-down, Side view, Hip level, Turntable, Chase, Cinematic
 and more, with Off-centre, Dutch angle, a 0.5x lens and Fisheye on top. Click the active camera again and you are back to Meitou's own. A port of
@@ -13,27 +13,36 @@ PZA's Camera for RE_Kenshi.
 | **Shift+K** | Opens or hides the PZA's Camera window |
 | **Shift+J** | Saves the tilt you see as Diorama Low's angle; press again within 5 s to put the old one back |
 
-Plain K (Put down) and J (Rescue) stay Meitou's. Nothing fires while you type in a text box. F10 also has "PZA's Camera: next camera" and
-"PZA's Camera: window".
+Plain K (Put down) and J (Rescue) stay Meitou's. Nothing fires while you type in a text box. F10 also has "PZA's Camera: next camera",
+"PZA's Camera: window" and "PZA's Camera: preview a called shot".
 
 ## The window
 Starts as a tiny **Camera: Off** button (top right): click = camera off / back to the last one, **+** or a double click = the window, drag
 it, mouse wheel for its opacity. Tabs:
 - **CAMERAS**: Off, Free, Diorama, Diorama Low, Isometric, Pixel Isometric, Top-down, Side view, Profile, Hip level, Turntable, Chase,
   Cinematic; Off-centre, Dutch angle, 0.5x lens, **Fisheye**; **Tilt-Shift** Off / Miniature / HD-2D / Diorama (Fisheye and Tilt-Shift
-  need PZA's Looks for Meitou).
-- **VIEW**: zoom stops (near / mid / far), Keep in view, the 45-degree settle of Diorama and Isometric, the Diorama look.
-- **SETTINGS**: every value with - / + / Reset. **HELP**.
+  need PZA's Post-FX for Meitou).
+- **VIEW**: zoom stops (near / mid / far), Keep in view, the 45-degree settle of Diorama and Isometric, the Diorama look, Fisheye, the
+  Cinematic zoom lock.
+- **SETTINGS**: every value with - / + / Reset.
+- **SHOTS** (0.5.0): **Kill cam shots** (off by default): when PZA's SlowMo's kill cam slows time for a kill, knockout or severed limb,
+  the camera cuts to a close-up of that moment, then eases back to yours. **Called-shot shots**: a called-shot mod can ask for
+  cinematic angles (a two-shot while you pick, then over the shoulder, side-on and low, close on the target or behind a bolt, and back
+  to your camera); a blocked angle is skipped, so the camera never ends up in a wall, a rock or a character. **Preview a shot** tries
+  it on your selected character; - / + / Reset for the shots' speeds and lengths.
+- **HELP**.
+While the game is paused, Cinematic and Turntable hold still and a shot holds its angle (0.5.0).
 Everything is also in **Settings > Mods > PZA's Camera** and is kept after a restart.
 
 ## Requires
-**Meitou 0.20.1 and newer.** Checked on Meitou 0.20.1, 0.21.0 and 0.22.1; there is no upper version cap any more, so a newer Meitou no longer refuses it. The Fisheye and Tilt-Shift buttons need **PZA's Looks for Meitou** (0.3.0 or
-newer for Fisheye); without it they are greyed out.
+**Meitou 0.20.1 and newer.** Checked on Meitou 0.20.1, 0.21.0 and 0.22.1; there is no upper version cap any more, so a newer Meitou no longer refuses it. The Fisheye and Tilt-Shift buttons need **PZA's Post-FX for Meitou** (formerly
+PZA's Looks; 0.3.0 or newer for Fisheye); the shots' slow time and the kill cam shots need **PZA's SlowMo for Meitou**. Without them those
+parts are greyed out or leave time alone.
 
 ## Install
 - **Workshop:** subscribe to PZA's Director's Kit, then tick **PZADirectorsKit** in Meitou's mod list. The Workshop item also carries the
   RE_Kenshi version for the original game; each game loads only its own file.
-- **By hand (GitHub):** unpack `PZACamera.Meitou-0.4.1-beta.zip` into Kenshi's folder (`Kenshi\mods\PZADirectorsKit\`), then tick
+- **By hand (GitHub):** unpack `PZACamera.Meitou-0.5.0-beta.zip` into Kenshi's folder (`Kenshi\mods\PZADirectorsKit\`), then tick
   **PZADirectorsKit** in Meitou's mod list. Coming from 0.3.x: remove the old copy first (the files
   `PZACamera.Meitou.dll` and `meitou.json` in `mods\PZACamera\`) so the camera is not loaded twice.
 - No items or world data; load order doesn't matter. Safe to remove at any time.

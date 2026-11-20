@@ -52,6 +52,12 @@ public static class Driver
     public static ModSettingsGroup? Group;
     /// <summary>The game host seen last (GameHost.ApplyCamera postfix).</summary>
     public static object? Host;
+    /// <summary>0.5.0 (the user, 2026-11-20: "The camera needs to pause when the player pauses... looking at YOU Cinematic mode"): the game is
+    /// paused (Meitou's SimulationClock.IsPaused: the pause key, speed 0, a load hold), read once a frame. While it is, Cinematic's switch timer and
+    /// Turntable's spin stand still and a called shot's timers stop; the player's own turning and zooming, and eases already under way, go on.</summary>
+    public static bool Paused;
+    /// <summary>0.5.0: the mod resolved the game and patched it (CameraApi answers only then).</summary>
+    public static bool Ready;
     /// <summary>Why it stands down now; null = it draws.</summary>
     public static string? StandDown { get; private set; }
 
@@ -256,7 +262,7 @@ public static class Driver
 
     public static void ResetAll(string from)
     {
-        foreach (var r in Rows.All.Concat(Rows.View)) StepRow(r.Key, 0, from);
+        foreach (var r in Rows.All.Concat(Rows.View).Concat(Rows.Shots)) StepRow(r.Key, 0, from);
         Log.Line("every settings row back to its default (" + from + ")");
     }
 
@@ -343,20 +349,62 @@ public static class Driver
         }
 
         Ground = session.Camera.GroundAt;
+        ShotWatch.HostFrame(s_clock.Elapsed.TotalSeconds);
+        SetPaused(session.Simulation.IsPaused);
         NpcRange = Access.NpcRange(host);
         string? why = Current == Cam.Off ? null : Why(cam, session, applied);
         SetStandDown(why);
         if (Current == Cam.Off || why is not null)
         {
-            HandBack(cam);
+            HandBack(cam, quiet: Shots.Active);
             s_pitch = float.NaN;
             s_kv = KeepView.State.Home;
             (s_kvShownExtra, s_kvShownZoom) = (0, 1);
             Publish(cam, cam.Target, Current == Cam.Off ? "Off" : "stood down");
-            return;
         }
-        if (Current == Cam.Cinematic) Cinematic(dt);
-        Draw(cam, dt);
+        else
+        {
+            if (Current == Cam.Cinematic) Cinematic(dt);
+            Draw(cam, dt);
+        }
+        // 0.5.0: a called shot draws over the player's camera (also while it is Off, or stood down for WASD Control's view: the shot was
+        // asked for, and it eases back onto whatever that camera draws). Never on the title screen or in Meitou's free camera.
+        if (!Shots.Active) return;
+        if (!PzaUi.InGame) Shots.Stop("the title screen");
+        else if (session.Camera.IsFree) Shots.Stop("Meitou's free camera");
+        else Shots.Apply(cam, session, dt, applied, session.CurrentSnapshot.Characters, session.CurrentSnapshot.Projectiles, session.Camera.GroundAt, Sight(session), Paused);
+    }
+
+    /// <summary>The pause, with a line when it starts or ends while something of ours moves on its own (Cinematic, Turntable, a shot).</summary>
+    public static void SetPaused(bool paused)
+    {
+        if (paused == Paused) return;
+        Paused = paused;
+        if (Effective == Cam.Turntable || Current == Cam.Cinematic || Shots.Active)
+        {
+            Counters.Add(paused ? "pause.hold" : "pause.resume");
+            Log.Line(paused ? "game paused: Cinematic, Turntable and the shots' timers hold" : "game resumed: Cinematic, Turntable and the shots' timers go on");
+        }
+    }
+
+    /// <summary>0.5.0: the game's own test of a line (the navmesh's walls, rocks and buildings: World.Walkability.LineOfSight), for the shots'
+    /// angle picker; the ground is sampled by the picker itself. Null when the world has none.</summary>
+    static Func<Vector3, Vector3, bool>? Sight(WorldSession session)
+    {
+        try
+        {
+            var walk = session.World.Walkability;
+            return walk is null ? null : (a, b) => walk.LineOfSight(a, b);
+        }
+        catch (Exception e) { Log.Exception("World.Walkability", e); return null; }
+    }
+
+    /// <summary>0.5.0: a shot wrote its lens over the player's. The player's lens is remembered as the game's, and ours is the shot's, so the
+    /// next frame neither takes the shot's lens for the game's nor leaves it on after the shot (HandBack puts it back).</summary>
+    public static void NoteShotLens(float baseFov, float fov)
+    {
+        if (float.IsNaN(s_ourFov) || float.IsNaN(s_gameFov)) s_gameFov = baseFov;
+        s_ourFov = fov;
     }
 
     /// <summary>Why it must not draw this frame, or null.</summary>
@@ -483,16 +531,16 @@ public static class Driver
     }
 
     /// <summary>Puts the game's lens and roll back when they are still ours (once, after a stand-down or Off).</summary>
-    public static void HandBack(WorldCamera cam)
+    public static void HandBack(WorldCamera cam, bool quiet = false)
     {
         if (float.IsNaN(s_ourFov)) return;
         if (cam.FieldOfView == s_ourFov && !float.IsNaN(s_gameFov)) cam.FieldOfView = s_gameFov;
         else Counters.Add("handback.lens_changed_elsewhere");
         if (s_ourRoll != 0 && cam.Roll == s_ourRoll) cam.Roll = 0;
-        Log.Line($"lens handed back: {cam.FieldOfView / CamCore.Deg:0.#} degrees");
+        if (!quiet) Log.Line($"lens handed back: {cam.FieldOfView / CamCore.Deg:0.#} degrees");
         s_ourFov = float.NaN;
         s_ourRoll = 0;
-        Counters.Add("handback");
+        Counters.Add(quiet ? "handback.under_shot" : "handback");
     }
 
     static void Publish(WorldCamera cam, Vector3 point, string camera)
@@ -507,6 +555,7 @@ public static class Driver
 
     static void Cinematic(float dt)
     {
+        if (Paused) { Counters.Add("cinematic.paused"); return; }   // the camera playing now holds until the game runs again
         s_cineLeft -= dt;
         if (s_cineLeft > 0) return;
         s_cine = CamCore.NextInPlaylist(s_cine, Settings.CinematicHipLevel, Settings.Isometric);
@@ -601,7 +650,7 @@ public static class Driver
                 return CamCore.EaseTurn(yaw, CamCore.Settle(yaw, s.YawStep, 0), 6, dt);
             case Cam.SideView when sinceUserTurn >= s.YawSettle:
                 return CamCore.EaseTurn(yaw, CamCore.Settle(yaw, s.SideYawStep, SideOffsetDeg), 6, dt);
-            case Cam.Turntable when sinceUserTurn >= s.TurntablePause:
+            case Cam.Turntable when sinceUserTurn >= s.TurntablePause && !Paused:
                 return (float)((Current == Cam.Cinematic ? s.CinematicTurntableSpeed : s.TurntableSpeed) * CamCore.Deg * dt);
             case Cam.Chase when charYaw is { } cy && charSpeed >= s.ChaseMinSpeed && sinceUserTurn >= s.ChasePause:
                 return CamCore.EaseTurn(yaw, CamCore.ChaseYaw(cy, s.ChaseFront), s.ChaseEase, dt);
@@ -669,5 +718,17 @@ public static class Rows
         new(nameof(CamSettings.KeepInViewMaxTilt), 5, 5, 60),
     ];
 
-    public static Row Find(string key) => All.Concat(View).First(r => r.Key == key);
+    /// <summary>0.5.0: the SHOTS tab's rows (the time each phase asks of PZA's SlowMo, and the lengths).</summary>
+    public static readonly Row[] Shots =
+    [
+        new(nameof(CamSettings.ShotPickSpeed), 0.05, 0.05, 1),
+        new(nameof(CamSettings.ShotSpeed), 0.05, 0.05, 1),
+        new(nameof(CamSettings.ShotBetweenSpeed), 0.05, 0.05, 1),
+        new(nameof(CamSettings.ShotImpactSpeed), 0.05, 0.05, 1),
+        new(nameof(CamSettings.ShotSeconds), 0.1, 0.2, 10),
+        new(nameof(CamSettings.ShotImpactSeconds), 0.25, 0.25, 5),
+        new(nameof(CamSettings.ShotReturnSeconds), 0.1, 0, 3),
+    ];
+
+    public static Row Find(string key) => All.Concat(View).Concat(Shots).First(r => r.Key == key);
 }

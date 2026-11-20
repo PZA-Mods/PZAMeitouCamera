@@ -4,6 +4,7 @@
 using System.Reflection;
 using Meitou.Localisation;
 using Meitou.Modding;
+using Meitou.Simulation;
 
 namespace PZA.Camera.Meitou;
 
@@ -30,7 +31,12 @@ public sealed class CameraMod : IMod
         PZA.MeitouUi.PzaUi.EachFrame = CamWindow.EachFrame;
         CamWindow.Setup();
         PZA.MeitouUi.PzaUi.Install(context);
+        Driver.Ready = true;
+        // 0.5.0: the shots watch landed hits (the running shot's impact; the kill cam shots)
+        context.AddSystem("pza.camera.shotwatch", _ => new ShotWatch(), SystemAnchor.End);
+        Log.Line($"called-shot shots {(Driver.Settings.Shots ? "on" : "off")} (CameraApi version {CameraApi.Version}); kill cam shots {(Driver.Settings.KillCamShots ? "on" : "off")}");
         context.AddDebugCommand("PZA's Camera: next camera", _ => Driver.DebugNext());
+        context.AddDebugCommand("PZA's Camera: preview a called shot", _ => { Driver.Queue(() => Shots.Preview("F10"), "F10 preview"); return "PZA's Camera: preview"; });
         context.AddDebugCommand("PZA's Camera: window (Shift+K)", _ => { Driver.Queue(CamWindow.HotkeyToggle, "F10"); return "PZA's Camera window"; });
     }
 

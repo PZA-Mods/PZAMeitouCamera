@@ -23,6 +23,8 @@ public static class CamWindow
     public static readonly string[] Extras = [nameof(CamSettings.OffCentre), nameof(CamSettings.Dutch), nameof(CamSettings.WideLens)];
     /// <summary>0.3.0: the VIEW tab's on / off buttons.</summary>
     public static readonly string[] ViewToggles = [nameof(CamSettings.ZoomStops), nameof(CamSettings.KeepInView), nameof(CamSettings.CinematicZoomLock)];
+    /// <summary>0.5.0: the SHOTS tab's on / off buttons (called-shot shots, the kill cam shots).</summary>
+    public static readonly string[] ShotToggles = [nameof(CamSettings.Shots), nameof(CamSettings.KillCamShots)];
 
     /// <summary>0.2.1: the window's height (fraction of the screen) and the lowest its bottom may sit. Meitou opens a PZA window centred, and
     /// the game's bottom HUD (Kenshi_MainPanel.layout: FloorPanel from 0.657, the message box MessagePanel from 0.713, where Meitou shows its
@@ -85,11 +87,29 @@ public static class CamWindow
         view.Add(L.Button("Fish", 0.515, 0.69, 0.455, 0.075));   // 0.4.1: the plugin's Fisheye button
         view.Add(L.Button("Tog_CinematicZoomLock", 0.03, 0.79, 0.94, 0.075));   // 0.4.0
 
+        // 0.5.0: SHOTS - called-shot shots (CameraApi), the kill cam shots, a preview, and the shots' speeds and lengths
+        var shots = new List<string>
+        {
+            L.Button("Tog_Shots", 0.03, 0.03, 0.94, 0.075),
+            L.Button("Tog_KillCamShots", 0.03, 0.12, 0.94, 0.075),
+            L.Button("ShotPreview", 0.03, 0.21, 0.94, 0.075),
+        };
+        for (int i = 0; i < Rows.Shots.Length; i++)
+        {
+            string k = Rows.Shots[i].Key;
+            double y = 0.32 + i * 0.085;
+            shots.Add(L.Text("Lb_" + k, 0.03, y, 0.47, 0.072));
+            shots.Add(L.Button("Minus_" + k, 0.51, y, 0.09, 0.072));
+            shots.Add(L.Button("Plus_" + k, 0.61, y, 0.09, 0.072));
+            shots.Add(L.Button("Reset_" + k, 0.71, y, 0.26, 0.072));
+        }
+
         return L.Doc(L.WindowMin("Root", "PZA'S CAMERA", 0.35, (1 - WindowH) / 2, 0.30, WindowH,
             L.Tabs("Tabs", 0.03, 0.02, 0.94, 0.95,
                 ("TabCams", [.. cams]),
                 ("TabView", [.. view]),
                 ("TabSettings", [.. rows]),
+                ("TabShots", [.. shots]),
                 L.HelpList("TabHelp", "lstHelp"))));
     }
 
@@ -160,6 +180,7 @@ public static class CamWindow
     public static string Value(string key)
     {
         double v = (double)typeof(CamSettings).GetProperty(key)!.GetValue(Driver.Settings)!;
+        if (Rows.Shots.Any(r => r.Key == key)) return v.ToString("0.0#", CultureInfo.InvariantCulture);   // 0.5.0: speeds and seconds
         return key == nameof(CamSettings.WideZoom) ? v.ToString("0.00", CultureInfo.InvariantCulture) : v.ToString("0", CultureInfo.InvariantCulture);
     }
 
@@ -169,7 +190,8 @@ public static class CamWindow
         PzaWindow.TabText(b, "Tabs", 0, Strings.T("tab.cams"));
         PzaWindow.TabText(b, "Tabs", 1, Strings.T("tab.view"));
         PzaWindow.TabText(b, "Tabs", 2, Strings.T("tab.settings"));
-        PzaWindow.TabText(b, "Tabs", 3, Strings.T("tab.help"));
+        PzaWindow.TabText(b, "Tabs", 3, Strings.T("tab.shots"));
+        PzaWindow.TabText(b, "Tabs", 4, Strings.T("tab.help"));
         var names = new List<string>();
         foreach (var c in Enum.GetValues<Cam>())
         {
@@ -180,7 +202,7 @@ public static class CamWindow
             b.Text[n] = active ? Strings.TF("active", Strings.CamName(c)) : Strings.CamName(c);
             PzaWindow.Tooltip(b, n, Strings.T(hidden ? "tip.hidden" : "tip." + c));
         }
-        foreach (var k in Extras.Concat(ViewToggles))
+        foreach (var k in Extras.Concat(ViewToggles).Concat(ShotToggles))
         {
             string n = "Tog_" + k;
             names.Add(n);
@@ -215,11 +237,14 @@ public static class CamWindow
         b.Text["Look"] = Strings.T(Driver.LookOn ? "look.on" : "look.off");
         PzaWindow.Tooltip(b, "Look", Strings.T(ts is null ? "ts.missing" : "tip.look"));
         if (ts is not null || Driver.LookOn) names.Add("Look");
+        b.Text["ShotPreview"] = Strings.T("btn.preview");
+        PzaWindow.Tooltip(b, "ShotPreview", Strings.T("tip.preview"));
+        if (Driver.Settings.Shots) names.Add("ShotPreview");
         string? fish = LooksLink.Fisheye;
         b.Text["Fish"] = Strings.T(fish is not null && fish != "Off" ? "fish.on" : "fish.off");
         PzaWindow.Tooltip(b, "Fish", Strings.T(fish is null ? "fish.missing" : "tip.fish"));
         if (fish is not null) names.Add("Fish");
-        foreach (var r in Rows.All.Concat(Rows.View))
+        foreach (var r in Rows.All.Concat(Rows.View).Concat(Rows.Shots))
         {
             b.Text["Lb_" + r.Key] = Strings.TF("row." + r.Key, Value(r.Key));
             PzaWindow.Tooltip(b, "Lb_" + r.Key, Strings.T("tiprow." + r.Key));
@@ -234,7 +259,7 @@ public static class CamWindow
         names.Add("ResetAll");
         b.Text["ResetAll"] = Strings.T("btn.resetall");
         PzaWindow.Enable(b, [.. names]);
-        Window.Paragraphs(b, "lstHelp", string.Join("\n\n", Enumerable.Range(1, 12).Select(i => Strings.T("help." + i))));
+        Window.Paragraphs(b, "lstHelp", string.Join("\n\n", Enumerable.Range(1, 14).Select(i => Strings.T("help." + i))));
     }
 
     static void OnEvent(MyGuiEvent e)
@@ -252,6 +277,7 @@ public static class CamWindow
             case "ZsFar": Driver.Queue(() => Driver.SaveStop(2, "window Far"), "window " + a); break;
             case "ZsReset": Driver.Queue(() => Driver.SaveStop(-1, "window Reset stops"), "window " + a); break;
             case "Look": Driver.Queue(() => Driver.ToggleLook("window"), "window " + a); break;
+            case "ShotPreview": Driver.Queue(() => Shots.Preview("window"), "window " + a); break;
             case "Fish": Driver.Queue(() => Driver.ToggleFisheye("window"), "window " + a); break;
             case "Ts":
                 // on the interface thread, as PZA's Looks asks; its pass reads the value at the next frame
