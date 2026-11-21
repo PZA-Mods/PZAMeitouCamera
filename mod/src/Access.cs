@@ -111,6 +111,61 @@ public static class Access
     }
     public static void Notice(object player, string text) => s_notice!.Invoke(player, [text, false, null]);
 
+    #region Depth of field and Photo Mode (optional, 0.6.0)
+
+    // GameHost.WorldOptions (internal) .Post (PostOptions) .PhotoDepthOfField (bool?): the switch Photo Mode turns depth of field on with; the
+    // world frame copies the drawn camera's FocusDistance / Aperture into the pass every frame (GameHost.ApplyCamera sets both back to null each
+    // frame, so a shot only sets them while it draws). PhotoMode (internal): Enter() saves the drawn lens in _fieldOfView and Leave() puts it back.
+    // Meitou 0.20.1 - 0.22.1 have all of them; a miss only turns that feature off, with a line.
+    static FieldInfo? s_worldOptions, s_post, s_photoDof, s_photoFov, s_cinematicView;
+    /// <summary>PhotoMode.Enter() (internal), or null.</summary>
+    public static MethodInfo? PhotoEnter;
+
+    public static List<string> ResolveOptional()
+    {
+        var lines = new List<string>();
+        var game = typeof(WorldSession).Assembly;
+        s_worldOptions = AccessTools.Field(GameHost, "WorldOptions");
+        s_post = s_worldOptions is null ? null : AccessTools.Field(s_worldOptions.FieldType, "Post");
+        s_photoDof = s_post is null || s_post.FieldType.IsValueType ? null : AccessTools.Field(s_post.FieldType, "PhotoDepthOfField");
+        if (s_photoDof is not null && s_photoDof.FieldType != typeof(bool?)) s_photoDof = null;
+        // the renderer runs its camera effects (depth of field) only for the cinematic cameras: PostOptions.CinematicView, set by GameLoop.MoveCamera
+        // each frame before PlaceSceneCameras (headless 2026-11-20: without it the shots' focus drew nothing, Photo Mode's did)
+        s_cinematicView = s_post is null ? null : AccessTools.Field(s_post.FieldType, "CinematicView");
+        if (s_cinematicView is null || s_cinematicView.FieldType != typeof(bool)) s_photoDof = null;
+        lines.Add(s_photoDof is null ? "shot focus off: GameHost.WorldOptions.Post.PhotoDepthOfField not found" : "shot focus: the depth-of-field switch found");
+        var photo = game.GetType("Meitou.Game.Host.Photo.PhotoMode");
+        PhotoEnter = photo is null ? null : AccessTools.Method(photo, "Enter", Type.EmptyTypes);
+        s_photoFov = photo is null ? null : AccessTools.Field(photo, "_fieldOfView");
+        if (s_photoFov is not null && s_photoFov.FieldType != typeof(float)) s_photoFov = null;
+        if (PhotoEnter is null || PhotoEnter.ReturnType != typeof(bool) || s_photoFov is null) PhotoEnter = null;
+        lines.Add(PhotoEnter is null ? "Photo Mode handover off: PhotoMode.Enter / _fieldOfView not found" : "Photo Mode handover: PhotoMode.Enter found");
+        return lines;
+    }
+
+    public static bool HasDof => s_photoDof is not null;
+
+    static object? PostOf(object host) => s_post!.GetValue(s_worldOptions!.GetValue(host));
+
+    public static bool? PhotoDof(object host) => PostOf(host) is { } p ? (bool?)s_photoDof!.GetValue(p) : null;
+
+    public static void SetPhotoDof(object host, bool? value)
+    {
+        if (PostOf(host) is { } p) s_photoDof!.SetValue(p, value);
+    }
+
+    /// <summary>This frame is a cinematic camera's (the shot's): the renderer may run its camera effects. Meitou sets the flag again next frame.</summary>
+    public static void SetCinematicView(object host)
+    {
+        if (PostOf(host) is { } p) s_cinematicView!.SetValue(p, true);
+    }
+
+    /// <summary>The lens Photo Mode puts back when it is left.</summary>
+    public static void SetPhotoReturnLens(object photo, float fov) => s_photoFov?.SetValue(photo, fov);
+    public static float? PhotoReturnLens(object photo) => s_photoFov?.GetValue(photo) as float?;
+
+    #endregion
+
     #region PZA's WASD Control (optional, read only)
 
     static bool s_wasdLooked;

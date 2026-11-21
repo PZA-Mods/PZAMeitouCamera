@@ -399,6 +399,31 @@ public static class Driver
         catch (Exception e) { Log.Exception("World.Walkability", e); return null; }
     }
 
+    /// <summary>0.6.0: Photo Mode is starting (PhotoMode.Enter prefix, host thread). A running shot ends here (its time hold and depth of field
+    /// are handed back first); Photo Mode then starts at the drawn eye, which is the shot's. Returns whether the drawn lens is ours and the player's
+    /// own lens, for the postfix.</summary>
+    public static (bool Ours, float GameFov) BeforePhoto()
+    {
+        bool shot = Shots.Active;
+        if (shot) Shots.Stop("Photo Mode starts from the shot's view");
+        bool ours = !float.IsNaN(s_ourFov) && !float.IsNaN(s_gameFov) && Host is { } h && Access.Camera(h) is { } cam && cam.FieldOfView == s_ourFov;
+        Counters.Add(shot ? "photo.from_shot" : "photo.enter");
+        return (ours, s_gameFov);
+    }
+
+    /// <summary>0.6.0: Photo Mode has started with our lens on the drawn camera: it keeps that lens (the shot or camera as framed), but leaving it
+    /// now puts the player's own lens back (before, Photo Mode saved ours and left the player with it). Photo Mode owns the lens from here on, so
+    /// the stand-down's hand-back must not take it.</summary>
+    public static void AfterPhoto(object photo, (bool Ours, float GameFov) st)
+    {
+        if (!st.Ours) { Log.Line("Photo Mode: the lens on screen was the player's own; nothing to hand over"); return; }
+        Access.SetPhotoReturnLens(photo, st.GameFov);
+        s_ourFov = float.NaN;
+        s_ourRoll = 0;
+        Counters.Add("photo.lens_handed_over");
+        Log.Line($"Photo Mode starts with this camera's lens; leaving it puts your own {st.GameFov / CamCore.Deg:0.#} degrees back");
+    }
+
     /// <summary>0.5.0: a shot wrote its lens over the player's. The player's lens is remembered as the game's, and ours is the shot's, so the
     /// next frame neither takes the shot's lens for the game's nor leaves it on after the shot (HandBack puts it back).</summary>
     public static void NoteShotLens(float baseFov, float fov)
@@ -728,6 +753,7 @@ public static class Rows
         new(nameof(CamSettings.ShotSeconds), 0.1, 0.2, 10),
         new(nameof(CamSettings.ShotImpactSeconds), 0.25, 0.25, 5),
         new(nameof(CamSettings.ShotReturnSeconds), 0.1, 0, 3),
+        new(nameof(CamSettings.ShotAperture), 0.1, 0.7, 16),   // 0.6.0
     ];
 
     public static Row Find(string key) => All.Concat(View).Concat(Shots).First(r => r.Key == key);

@@ -249,34 +249,49 @@ public sealed class CamSettings
     public double KeepInViewMaxTilt { get; set; } = 35;
 
     // ---- 0.5.0: called-shot shots (CameraApi) and the kill cam shots
-    [Setting("Called-shot shots", Hint = "A called-shot mod may frame the attacker and the target while you pick, and cut to cinematic angles while the strikes play out (CameraApi). Off: it can't.")]
+    // 0.6.0 (the user, 2026-11-21: "it just doesn't show up in the menu(s) if the dependency isn't installed"): what the shots need. Plain
+    // properties (no [Setting]), read live by Meitou's Settings page through VisibleWhen and by the window when it is built.
+    /// <summary>PZA's SlowMo's hold door is there (the shots' slow time, the kill cam shots).</summary>
+    public bool SlowMoHere => SlowLink.Available;
+    /// <summary>A called-shot mod has made itself known (CameraApi.Announce or a first request).</summary>
+    public bool CalledShotModHere => global::PZA.Camera.Meitou.Shots.CallerSeen;
+    /// <summary>Anything can ask for a shot: the shots' look and lengths are worth showing.</summary>
+    public bool ShotsShown => SlowMoHere || CalledShotModHere;
+
+    [Setting("Called-shot shots", Hint = "A called-shot mod may frame the attacker and the target while you pick, and cut to cinematic angles while the strikes play out (CameraApi). Off: it can't.", VisibleWhen = nameof(CalledShotModHere))]
     public bool Shots { get; set; } = true;
 
-    [Setting("Kill cam shots", Hint = "When PZA's SlowMo's kill cam slows time for a kill, knockout or severed limb, the camera cuts to a close-up for that moment, then comes back.")]
+    [Setting("Kill cam shots", Hint = "When PZA's SlowMo's kill cam slows time for a kill, knockout or severed limb, the camera cuts to a close-up for that moment, then comes back.", VisibleWhen = nameof(SlowMoHere))]
     public bool KillCamShots { get; set; }
 
-    [Setting("Shot time", Hint = "The shots slow time through PZA's SlowMo (when the calling mod hands time to the camera). Off: time is left to the calling mod.", VisibleWhen = nameof(Shots))]
+    [Setting("Shot time", Hint = "The shots slow time through PZA's SlowMo (when the calling mod hands time to the camera). Off: time is left to the calling mod.", VisibleWhen = nameof(SlowMoHere))]
     public bool ShotTime { get; set; } = true;
 
-    [Setting("Time while picking", Hint = "Game speed while you pick a target.", Min = 0.05, Max = 1, Step = 0.05, VisibleWhen = nameof(Shots))]
+    [Setting("Time while picking", Hint = "Game speed while you pick a target.", Min = 0.05, Max = 1, Step = 0.05, VisibleWhen = nameof(SlowMoHere))]
     public double ShotPickSpeed { get; set; } = 0.10;
 
-    [Setting("Time during a shot", Hint = "Game speed while a strike or shot plays.", Min = 0.05, Max = 1, Step = 0.05, VisibleWhen = nameof(Shots))]
+    [Setting("Time during a shot", Hint = "Game speed while a strike or shot plays.", Min = 0.05, Max = 1, Step = 0.05, VisibleWhen = nameof(SlowMoHere))]
     public double ShotSpeed { get; set; } = 0.30;
 
-    [Setting("Time between shots", Hint = "Game speed between two shots.", Min = 0.05, Max = 1, Step = 0.05, VisibleWhen = nameof(Shots))]
+    [Setting("Time between shots", Hint = "Game speed between two shots.", Min = 0.05, Max = 1, Step = 0.05, VisibleWhen = nameof(SlowMoHere))]
     public double ShotBetweenSpeed { get; set; } = 0.60;
 
-    [Setting("Time on a kill", Hint = "Game speed on a kill, knockout or severed limb (the slowest).", Min = 0.05, Max = 1, Step = 0.05, VisibleWhen = nameof(Shots))]
+    [Setting("Time on a kill", Hint = "Game speed on a kill, knockout or severed limb (the slowest).", Min = 0.05, Max = 1, Step = 0.05, VisibleWhen = nameof(SlowMoHere))]
     public double ShotImpactSpeed { get; set; } = 0.10;
 
-    [Setting("Shot length", Hint = "Seconds of real time one shot holds its angle (a calling mod may ask for its own).", Min = 0.2, Max = 10, Step = 0.1, VisibleWhen = nameof(Shots))]
+    [Setting("Shot length", Hint = "Seconds of real time one shot holds its angle (a calling mod may ask for its own).", Min = 0.2, Max = 10, Step = 0.1, VisibleWhen = nameof(ShotsShown))]
     public double ShotSeconds { get; set; } = 1.5;
 
-    [Setting("Kill close-up length", Hint = "Seconds of real time the close-up holds on a kill, knockout or severed limb.", Min = 0.25, Max = 5, Step = 0.25, VisibleWhen = nameof(Shots))]
+    [Setting("Kill close-up length", Hint = "Seconds of real time the close-up holds on a kill, knockout or severed limb.", Min = 0.25, Max = 5, Step = 0.25, VisibleWhen = nameof(ShotsShown))]
     public double ShotImpactSeconds { get; set; } = 1.0;
 
-    [Setting("Way back", Hint = "Seconds the camera takes to ease back to your own camera after the shots (0 = at once).", Min = 0, Max = 3, Step = 0.1, VisibleWhen = nameof(Shots))]
+    [Setting("Shot focus", Hint = "The shots focus on their subject like a film camera: the background goes soft. Off: everything stays sharp.", VisibleWhen = nameof(ShotsShown))]
+    public bool ShotFocus { get; set; } = true;
+
+    [Setting("Shot focus f-number", Hint = "How soft the background goes: smaller = softer (1.4 a film close-up; 8 nearly all sharp).", Min = 0.7, Max = 16, Step = 0.1, VisibleWhen = nameof(ShotsShown))]
+    public double ShotAperture { get; set; } = 1.4;
+
+    [Setting("Way back", Hint = "Seconds the camera takes to ease back to your own camera after the shots (0 = at once).", Min = 0, Max = 3, Step = 0.1, VisibleWhen = nameof(ShotsShown))]
     public double ShotReturnSeconds { get; set; } = 0.6;
 
     // ---- the window (PZA's Meitou UI)

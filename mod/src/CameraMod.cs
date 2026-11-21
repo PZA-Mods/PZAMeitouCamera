@@ -51,7 +51,13 @@ public sealed class CameraMod : IMod
         }
         try
         {
+            foreach (var line in Access.ResolveOptional()) Log.Line(line);
             foreach (var line in Patches.Apply(harmony)) Log.Line(line);
+            if (Access.HasDof)
+            {
+                Shots.Dof = (() => Driver.Host is { } h ? Access.PhotoDof(h) : null, v => { if (Driver.Host is { } h) Access.SetPhotoDof(h, v); });
+                Shots.CinematicView = () => { if (Driver.Host is { } h) Access.SetCinematicView(h); };
+            }
             return true;
         }
         catch (Exception e)

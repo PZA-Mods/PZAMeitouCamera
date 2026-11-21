@@ -129,7 +129,7 @@ tip.KillCamShots = 当 PZA's SlowMo 的击杀镜头在击杀、击倒或断肢�
 btn.preview = 预览镜头
 tip.preview = 立即播放一次瞄准攻击镜头：你选中的角色和最近的另一个角色，然后回到你的镜头。
 help.13 = 瞄准攻击镜头：瞄准攻击模组可以请 PZA's Camera 提供电影般的镜头。你选择时，镜头同时框住攻击者和目标；每次攻击或射击会切到过肩、侧面低角度、目标特写或跟随弩箭的角度。击杀、击倒或断肢会停留在特写上。然后平滑回到你自己的镜头。“镜头”标签页可以开关、试用并设置时间。
-help.14 = 镜头绝不会进入墙壁、岩石或角色：被挡住的角度会跳到下一个。配合 PZA's SlowMo，选择时时间几乎停滞，击杀时最慢。击杀镜头为 PZA's SlowMo 的击杀镜头使用同样的特写。预览镜头会在你选中的角色上试一次。速度和时长：设置 > 模组。游戏暂停时，镜头保持角度，计时也会停止。
+help.14 = 镜头绝不会进入墙壁、岩石或角色：被挡住的角度会跳到下一个。配合 PZA's SlowMo，选择时时间几乎停滞，击杀时最慢。击杀镜头为 PZA's SlowMo 的击杀镜头使用同样的特写。预览镜头会在你选中的角色上试一次。速度和时长：设置 > 模组。游戏暂停时，镜头保持角度，计时也会停止。镜头会对焦主体并柔化背景（焦点）。在镜头中按 P 可从同一视角打开 Meitou 的拍照模式；退出时会恢复你自己的镜头。“镜头”标签页只显示你的模组能用的内容：需要 PZA's SlowMo 或瞄准攻击模组。
 tog.CinematicZoomLock.on = 电影缩放锁定：开
 tog.CinematicZoomLock.off = 电影缩放锁定：关
 tip.CinematicZoomLock = 电影播放时，每个镜头停在它的中档缩放，滚轮无法改变。
@@ -155,3 +155,8 @@ tiprow.ShotImpactSpeed = 击杀、击倒或断肢时的游戏速度（最慢）�
 tiprow.ShotSeconds = 一个镜头保持角度的真实秒数（调用的模组可以要求自己的时长）。
 tiprow.ShotImpactSeconds = 击杀、击倒或断肢时特写保持的真实秒数。
 tiprow.ShotReturnSeconds = 镜头平滑回到你的镜头所用的秒数（0 = 立即）。
+tog.ShotFocus.on = 焦点：开
+tog.ShotFocus.off = 焦点：关
+tip.ShotFocus = 镜头像电影摄影机一样对焦主体，背景变得柔和。
+row.ShotAperture = 焦点 f/{1}
+tiprow.ShotAperture = 镜头中背景的柔和程度：越小越柔和（1.4 像电影特写；8 几乎全部清晰）。

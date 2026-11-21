@@ -72,9 +72,21 @@ public static class CameraApi
     /// the camera releases it.</summary>
     public static void Release(string caller) => Driver.Queue(() => Shots.Release(caller ?? "?", "CameraApi.Release by " + caller), "CameraApi.Release");
 
+    /// <summary>0.6.0 (still contract version 1: an addition): a called-shot mod says it is there, best once at load (its IMod.Initialize or
+    /// the first frame). The "Called-shot shots" switch is shown only to players who have such a mod; without this call it appears after the
+    /// mod's first Frame or Shot. Changes nothing else.</summary>
+    public static void Announce(string caller)
+    {
+        if (string.IsNullOrWhiteSpace(caller)) return;
+        if (!Shots.CallerSeen) Log.Line($"a called-shot mod is here ({caller}): the SHOTS tab shows its switch");
+        Shots.CallerSeen = true;
+        Counters.Add("api.announce");
+    }
+
     static bool Ask(string caller, Func<bool> start)
     {
         if (string.IsNullOrWhiteSpace(caller)) return false;
+        if (!Shots.CallerSeen) { Shots.CallerSeen = true; Log.Line($"a called-shot mod is here ({caller}, first request)"); }
         if (!Available) { Counters.Add("api.refused"); return false; }
         if (!Shots.MayTake(caller)) { Counters.Add("api.busy"); return false; }
         Driver.Queue(() => start(), "CameraApi from " + caller);

@@ -24,7 +24,7 @@ public static class CamWindow
     /// <summary>0.3.0: the VIEW tab's on / off buttons.</summary>
     public static readonly string[] ViewToggles = [nameof(CamSettings.ZoomStops), nameof(CamSettings.KeepInView), nameof(CamSettings.CinematicZoomLock)];
     /// <summary>0.5.0: the SHOTS tab's on / off buttons (called-shot shots, the kill cam shots).</summary>
-    public static readonly string[] ShotToggles = [nameof(CamSettings.Shots), nameof(CamSettings.KillCamShots)];
+    public static readonly string[] ShotToggles = [nameof(CamSettings.Shots), nameof(CamSettings.KillCamShots), nameof(CamSettings.ShotFocus)];
 
     /// <summary>0.2.1: the window's height (fraction of the screen) and the lowest its bottom may sit. Meitou opens a PZA window centred, and
     /// the game's bottom HUD (Kenshi_MainPanel.layout: FloorPanel from 0.657, the message box MessagePanel from 0.713, where Meitou shows its
@@ -87,31 +87,52 @@ public static class CamWindow
         view.Add(L.Button("Fish", 0.515, 0.69, 0.455, 0.075));   // 0.4.1: the plugin's Fisheye button
         view.Add(L.Button("Tog_CinematicZoomLock", 0.03, 0.79, 0.94, 0.075));   // 0.4.0
 
-        // 0.5.0: SHOTS - called-shot shots (CameraApi), the kill cam shots, a preview, and the shots' speeds and lengths
-        var shots = new List<string>
+        // 0.5.0: SHOTS - called-shot shots (CameraApi), the kill cam shots, a preview, and the shots' speeds and lengths. 0.6.0 (the user,
+        // 2026-11-21): only what the player's mods can use: no tab without PZA's SlowMo or a called-shot mod, the kill cam and time rows only
+        // with PZA's SlowMo, the called-shot switch only once such a mod is known. Decided when the window is built (each game load: every mod
+        // has loaded by then, and a mod is only added with a restart).
+        (ShotsSlowMo, ShotsCaller) = ShotDeps();
+        ShotsTab = ShotsSlowMo || ShotsCaller;
+        var shots = new List<string>();
+        double sy = 0.03;
+        if (ShotsCaller) { shots.Add(L.Button("Tog_Shots", 0.03, sy, 0.94, 0.075)); sy += 0.09; }
+        if (ShotsSlowMo)
         {
-            L.Button("Tog_Shots", 0.03, 0.03, 0.94, 0.075),
-            L.Button("Tog_KillCamShots", 0.03, 0.12, 0.94, 0.075),
-            L.Button("ShotPreview", 0.03, 0.21, 0.94, 0.075),
-        };
-        for (int i = 0; i < Rows.Shots.Length; i++)
+            shots.Add(L.Button("Tog_KillCamShots", 0.03, sy, 0.455, 0.075));
+            shots.Add(L.Button("Tog_ShotFocus", 0.515, sy, 0.455, 0.075));
+        }
+        else shots.Add(L.Button("Tog_ShotFocus", 0.03, sy, 0.94, 0.075));
+        sy += 0.09;
+        shots.Add(L.Button("ShotPreview", 0.03, sy, 0.94, 0.075));
+        sy += 0.1;
+        foreach (var r in ShotRows)
         {
-            string k = Rows.Shots[i].Key;
-            double y = 0.32 + i * 0.085;
-            shots.Add(L.Text("Lb_" + k, 0.03, y, 0.47, 0.072));
-            shots.Add(L.Button("Minus_" + k, 0.51, y, 0.09, 0.072));
-            shots.Add(L.Button("Plus_" + k, 0.61, y, 0.09, 0.072));
-            shots.Add(L.Button("Reset_" + k, 0.71, y, 0.26, 0.072));
+            string k = r.Key;
+            shots.Add(L.Text("Lb_" + k, 0.03, sy, 0.47, 0.072));
+            shots.Add(L.Button("Minus_" + k, 0.51, sy, 0.09, 0.072));
+            shots.Add(L.Button("Plus_" + k, 0.61, sy, 0.09, 0.072));
+            shots.Add(L.Button("Reset_" + k, 0.71, sy, 0.26, 0.072));
+            sy += 0.084;
         }
 
+        var tabs = new List<(string, string[])> { ("TabCams", [.. cams]), ("TabView", [.. view]), ("TabSettings", [.. rows]) };
+        if (ShotsTab) tabs.Add(("TabShots", [.. shots]));
+        tabs.Add(L.HelpList("TabHelp", "lstHelp"));
         return L.Doc(L.WindowMin("Root", "PZA'S CAMERA", 0.35, (1 - WindowH) / 2, 0.30, WindowH,
-            L.Tabs("Tabs", 0.03, 0.02, 0.94, 0.95,
-                ("TabCams", [.. cams]),
-                ("TabView", [.. view]),
-                ("TabSettings", [.. rows]),
-                ("TabShots", [.. shots]),
-                L.HelpList("TabHelp", "lstHelp"))));
+            L.Tabs("Tabs", 0.03, 0.02, 0.94, 0.95, [.. tabs])));
     }
+
+    /// <summary>0.6.0: what the SHOTS tab was built with (set by LayoutXml).</summary>
+    public static bool ShotsTab, ShotsSlowMo, ShotsCaller;
+    /// <summary>The offline check's stand-in for "PZA's SlowMo is here, a called-shot mod is known".</summary>
+    public static Func<(bool SlowMo, bool Caller)>? DepsOverride;
+    public static (bool SlowMo, bool Caller) ShotDeps() => DepsOverride?.Invoke() ?? (SlowLink.Available, Shots.CallerSeen);
+
+    /// <summary>The time rows need PZA's SlowMo (they are its speeds).</summary>
+    static readonly string[] TimeRows = [nameof(CamSettings.ShotPickSpeed), nameof(CamSettings.ShotSpeed), nameof(CamSettings.ShotBetweenSpeed), nameof(CamSettings.ShotImpactSpeed)];
+
+    /// <summary>The SHOTS rows the window shows (as built).</summary>
+    public static IEnumerable<Rows.Row> ShotRows => ShotsTab ? Rows.Shots.Where(r => ShotsSlowMo || !TimeRows.Contains(r.Key)) : [];
 
     public static void Setup()
     {
@@ -177,6 +198,13 @@ public static class CamWindow
         Counters.Add("window.hotkey");
     }
 
+    static bool ShotToggleShown(string key) => ShotsTab && key switch
+    {
+        nameof(CamSettings.Shots) => ShotsCaller,
+        nameof(CamSettings.KillCamShots) => ShotsSlowMo,
+        _ => true,
+    };
+
     public static string Value(string key)
     {
         double v = (double)typeof(CamSettings).GetProperty(key)!.GetValue(Driver.Settings)!;
@@ -190,8 +218,8 @@ public static class CamWindow
         PzaWindow.TabText(b, "Tabs", 0, Strings.T("tab.cams"));
         PzaWindow.TabText(b, "Tabs", 1, Strings.T("tab.view"));
         PzaWindow.TabText(b, "Tabs", 2, Strings.T("tab.settings"));
-        PzaWindow.TabText(b, "Tabs", 3, Strings.T("tab.shots"));
-        PzaWindow.TabText(b, "Tabs", 4, Strings.T("tab.help"));
+        if (ShotsTab) PzaWindow.TabText(b, "Tabs", 3, Strings.T("tab.shots"));
+        PzaWindow.TabText(b, "Tabs", ShotsTab ? 4 : 3, Strings.T("tab.help"));
         var names = new List<string>();
         foreach (var c in Enum.GetValues<Cam>())
         {
@@ -202,7 +230,7 @@ public static class CamWindow
             b.Text[n] = active ? Strings.TF("active", Strings.CamName(c)) : Strings.CamName(c);
             PzaWindow.Tooltip(b, n, Strings.T(hidden ? "tip.hidden" : "tip." + c));
         }
-        foreach (var k in Extras.Concat(ViewToggles).Concat(ShotToggles))
+        foreach (var k in Extras.Concat(ViewToggles).Concat(ShotToggles.Where(ShotToggleShown)))
         {
             string n = "Tog_" + k;
             names.Add(n);
@@ -237,14 +265,17 @@ public static class CamWindow
         b.Text["Look"] = Strings.T(Driver.LookOn ? "look.on" : "look.off");
         PzaWindow.Tooltip(b, "Look", Strings.T(ts is null ? "ts.missing" : "tip.look"));
         if (ts is not null || Driver.LookOn) names.Add("Look");
-        b.Text["ShotPreview"] = Strings.T("btn.preview");
-        PzaWindow.Tooltip(b, "ShotPreview", Strings.T("tip.preview"));
-        if (Driver.Settings.Shots) names.Add("ShotPreview");
+        if (ShotsTab)
+        {
+            b.Text["ShotPreview"] = Strings.T("btn.preview");
+            PzaWindow.Tooltip(b, "ShotPreview", Strings.T("tip.preview"));
+            if (Driver.Settings.Shots) names.Add("ShotPreview");
+        }
         string? fish = LooksLink.Fisheye;
         b.Text["Fish"] = Strings.T(fish is not null && fish != "Off" ? "fish.on" : "fish.off");
         PzaWindow.Tooltip(b, "Fish", Strings.T(fish is null ? "fish.missing" : "tip.fish"));
         if (fish is not null) names.Add("Fish");
-        foreach (var r in Rows.All.Concat(Rows.View).Concat(Rows.Shots))
+        foreach (var r in Rows.All.Concat(Rows.View).Concat(ShotRows))
         {
             b.Text["Lb_" + r.Key] = Strings.TF("row." + r.Key, Value(r.Key));
             PzaWindow.Tooltip(b, "Lb_" + r.Key, Strings.T("tiprow." + r.Key));

@@ -38,9 +38,23 @@ public static class Shots
     static WorldSession? s_session;
     static Vector3 s_attPos, s_vicPos;
 
+    /// <summary>0.6.0: the depth-of-field switch (get, set), wired to GameHost.WorldOptions.Post.PhotoDepthOfField when Meitou has it (CameraMod);
+    /// null = no shot focus. The offline check plugs its own in.</summary>
+    public static (Func<bool?> Get, Action<bool?> Set)? Dof;
+    /// <summary>0.6.0: marks this frame as a cinematic camera's, so the renderer runs its depth of field (Meitou clears it every frame).</summary>
+    public static Action? CinematicView;
+    static bool s_dofOn, s_freshFromPlayer;
+    static bool? s_dofPrev;
+    /// <summary>The f-number drawn last (NaN = no focus this frame), for the check.</summary>
+    public static float LastAperture = float.NaN;
+
     /// <summary>The pair ShotWatch watches (tick thread): attacker and target of the running shot.</summary>
     public static volatile Watching? Watch;
     public sealed record Watching(CharacterId Attacker, CharacterId Victim);
+
+    /// <summary>0.6.0: a called-shot mod has made itself known this game (CameraApi.Announce, or any Frame / Shot request): the SHOTS tab
+    /// then shows the "Called-shot shots" switch (from the next time the window is built: a game load), Settings > Mods at once.</summary>
+    public static volatile bool CallerSeen;
 
     public static Mode Now => (Mode)s_mode;
     public static bool Active => s_mode != (int)Mode.None;
@@ -68,7 +82,7 @@ public static class Shots
         }
         if (att.IsNone || vic.IsNone) { Counters.Add("shot.refused.no_character"); return false; }
         bool fresh = !Active || s_mode == (int)Mode.Return || s_caller != caller;
-        if (fresh) { s_havePose = false; s_last = ShotKind.None; }
+        if (fresh) { s_havePose = false; s_last = ShotKind.None; s_freshFromPlayer = true; }
         s_caller = caller;
         if (fresh) s_session = Driver.Host is { } h ? Access.Session(h) : null;   // a run started in this world (Apply stops it in another)
         (s_att, s_vic) = (att, vic);
@@ -192,6 +206,7 @@ public static class Shots
         s_havePose = false;
         Watch = null;
         SlowLink.Release(why);
+        DofOff(why);
         Counters.Add("shot.end");
         Log.Line($"shot: ended ({why})");
     }
@@ -300,12 +315,48 @@ public static class Shots
         cam.FieldOfView = drawn.Fov;
         cam.Roll = drawn.Roll;
         Driver.NoteShotLens(basePose.Fov, drawn.Fov);
+        Focus(cam, drawn, mode);
         CameraFocus.Point = drawn.Target;
         CameraFocus.Eye = cam.Eye;
         CameraFocus.Distance = Vector3.Distance(drawn.Target, CameraFocus.Eye);
         CameraFocus.FieldOfView = drawn.Fov;
         CameraFocus.Camera = "Shot " + s_playing;
         Counters.Add("shot.drawn." + s_kind);
+    }
+
+    /// <summary>0.6.0 shot focus: the focus on the shot's subject (the point it looks at), the f-number from the setting, softening in as the
+    /// camera arrives and sharpening on the way back; depth of field switched on for the run and handed back when it ends.</summary>
+    static void Focus(WorldCamera cam, Pose drawn, Mode mode)
+    {
+        LastAperture = float.NaN;
+        if (Dof is not { } dof || !Driver.Settings.ShotFocus) { DofOff("shot focus off"); return; }
+        float t;
+        if (mode == Mode.Return) t = 1 - (float)(s_blendLen <= 0 ? 1 : Math.Min(1, s_blendT / s_blendLen));
+        else if (s_freshFromPlayer && s_blendT < s_blendLen) t = (float)(s_blendT / s_blendLen);
+        else { t = 1; s_freshFromPlayer = false; }
+        float ap = ShotCore.Aperture(Driver.Settings.ShotAperture, s_kind, t);
+        float dist = Vector3.Distance(cam.Eye, drawn.Target);
+        if (!float.IsFinite(dist) || dist <= 0) return;
+        cam.FocusDistance = dist;
+        cam.Aperture = ap;
+        LastAperture = ap;
+        try { CinematicView?.Invoke(); } catch (Exception e) { Log.Exception("shot focus: cinematic view", e); }
+        if (!s_dofOn)
+        {
+            try { s_dofPrev = dof.Get(); dof.Set(true); s_dofOn = true; }
+            catch (Exception e) { Log.Exception("shot focus on", e); return; }
+            Counters.Add("shot.focus.on");
+            Log.Line($"shot focus: depth of field on (f/{Driver.Settings.ShotAperture:0.0#}); it was {(s_dofPrev is null ? "the game's own switch" : s_dofPrev.Value ? "on" : "off")}");
+        }
+    }
+
+    static void DofOff(string why)
+    {
+        if (!s_dofOn) return;
+        s_dofOn = false;
+        try { Dof?.Set(s_dofPrev); } catch (Exception e) { Log.Exception("shot focus hand-back", e); }
+        Counters.Add("shot.focus.off");
+        Log.Line($"shot focus: depth of field handed back ({why})");
     }
 
     static ShotScene Scene(IReadOnlyList<ProjectileSnapshot> bolts, CharacterSnapshot? a)

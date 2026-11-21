@@ -31,7 +31,30 @@ public static class Patches
             h.UnpatchAll(h.Id);
             throw;
         }
+        // 0.6.0, optional: Photo Mode starts from a shot's (or a camera's) view and lens, and leaving it gives the player's own lens back
+        if (Access.PhotoEnter is { } enter)
+        {
+            try
+            {
+                h.Patch(enter, prefix: Hook(nameof(PhotoEnterPrefix)), postfix: Hook(nameof(PhotoEnterPostfix)));
+                lines.Add("Photo Mode handover: patched PhotoMode.Enter prefix + postfix");
+            }
+            catch (Exception e) { lines.Add("Photo Mode handover off: " + e.GetType().Name + ": " + e.Message); }
+        }
         return lines;
+    }
+
+    static void PhotoEnterPrefix(out (bool Ours, float GameFov) __state)
+    {
+        __state = default;
+        try { __state = Driver.BeforePhoto(); }
+        catch (Exception e) { Log.Exception("PhotoMode.Enter prefix", e); }
+    }
+
+    static void PhotoEnterPostfix(object __instance, bool __result, (bool Ours, float GameFov) __state)
+    {
+        try { if (__result) Driver.AfterPhoto(__instance, __state); }
+        catch (Exception e) { Log.Exception("PhotoMode.Enter postfix", e); }
     }
 
     static HarmonyMethod Hook(string name) => new(AccessTools.Method(typeof(Patches), name));

@@ -240,6 +240,21 @@ public static class ShotCore
         return Math.Clamp(double.IsFinite(v) ? v : 0.3, 0.05, 1);
     }
 
+    /// <summary>The sharpest f-number used while a shot eases in or out (nearly everything in focus), and the softest allowed.</summary>
+    public const float SharpAperture = 22, SoftestAperture = 0.7f;
+
+    /// <summary>0.6.0 shot focus: the f-number drawn. <paramref name="setting"/> is the player's (Shot focus f-number); a two-shot or an overview
+    /// keeps both characters about sharp (at least f/4); <paramref name="t"/> 0..1 is how far the camera is into the shot (0 = still on the
+    /// player's camera: sharp, 1 = the shot), so the background softens as the camera arrives and sharpens as it leaves. Always finite, in
+    /// 0.7 .. 22.</summary>
+    public static float Aperture(double setting, ShotKind kind, float t)
+    {
+        double a = double.IsFinite(setting) ? Math.Clamp(setting, SoftestAperture, SharpAperture) : 1.4;
+        if (kind is ShotKind.Frame or ShotKind.Overview) a = Math.Max(a, 4);
+        float k = Smooth(t);
+        return (float)(SharpAperture + (a - SharpAperture) * k);   // a in 0.7 .. 22 and k in 0 .. 1 keep it there
+    }
+
     /// <summary>A shot's length in real seconds, kept in 0.2 .. 10 (NaN or 0 = the setting's).</summary>
     public static double Seconds(double asked, double setting)
     {
