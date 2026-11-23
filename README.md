@@ -1,4 +1,4 @@
-# PZA's Director's Kit for Meitou (beta 0.6.1)
+# PZA's Director's Kit for Meitou (beta 0.6.2)
 
 **PZA's Director's Kit** (formerly PZA's Camera): thirteen ready-made camera looks for Meitou, one click each: Diorama, Isometric, Top-down, Side view, Hip level, Turntable, Chase, Cinematic
 and more, with Off-centre, Dutch angle, a 0.5x lens and Fisheye on top. Click the active camera again and you are back to Meitou's own. A port of
@@ -47,7 +47,7 @@ parts are greyed out or leave time alone.
 ## Install
 - **Workshop:** subscribe to PZA's Director's Kit, then tick **PZADirectorsKit** in Meitou's mod list. The Workshop item also carries the
   RE_Kenshi version for the original game; each game loads only its own file.
-- **By hand (GitHub):** unpack `PZACamera.Meitou-0.6.1-beta.zip` into Kenshi's folder (`Kenshi\mods\PZADirectorsKit\`), then tick
+- **By hand (GitHub):** unpack `PZACamera.Meitou-0.6.2-beta.zip` into Kenshi's folder (`Kenshi\mods\PZADirectorsKit\`), then tick
   **PZADirectorsKit** in Meitou's mod list. Coming from 0.3.x: remove the old copy first (the files
   `PZACamera.Meitou.dll` and `meitou.json` in `mods\PZACamera\`) so the camera is not loaded twice.
 - No items or world data; load order doesn't matter. Safe to remove at any time.

@@ -2,7 +2,7 @@
   // PZA's Camera for Meitou (author PZA, GPLv3 or later). Schema: MeitouClient docs/modding.md "Discovery", docs/modding-dependencies.md "Manifest".
   // The folder can be the RE_Kenshi plugin's own (mods\PZADirectorsKit\, since 2026-11-19): Meitou loads only the assembly listed here, RE_Kenshi only RE_Kenshi.json's.
   "id": "pza.camera",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "apiVersion": 2,
   "assemblies": ["PZACamera.Meitou.dll"],
   "entry": "PZA.Camera.Meitou.CameraMod",

@@ -71,6 +71,11 @@ public static class Access
         var v2 = typeof(System.Numerics.Vector2);
         s_place4 = AccessTools.Method(typeof(StrategyCamera), "Place", [v2, typeof(float), typeof(float), typeof(float)]);
         s_place5 = s_place4 is null ? AccessTools.Method(typeof(StrategyCamera), "Place", [v2, typeof(float), typeof(float), typeof(float), typeof(float?)]) : null;
+        // 0.6.2: the new shape also re-finds the pivot's height, from the given one (its map features: a raised street, a bridge, a cliff
+        // block) or, with none, from above the bare ground. Meitou's own re-placings in place pass Pivot.Y (CameraLeash, CameraRig.MovePivot),
+        // so the Kit does too; without it a zoom snap on a raised feature would drop the view to the ground below.
+        s_pivot = s_place5 is not null ? AccessTools.Property(typeof(StrategyCamera), "Pivot") : null;
+        if (s_place5 is not null && s_pivot?.PropertyType != typeof(System.Numerics.Vector3)) s_pivot = null;
         if (s_place4 is null && s_place5 is null) Log.Line("StrategyCamera.Place not found: zoom stops, the zoom band and the Cinematic zoom lock stay off");
         // optional: the message line (as PZA's SlowMo and WASD Control); a miss only turns the messages off
         s_notice = AccessTools.Method(player, "Notice", [typeof(string), typeof(bool), typeof(string)]);
@@ -83,6 +88,7 @@ public static class Access
     }
 
     static System.Reflection.MethodInfo? s_place4, s_place5;
+    static System.Reflection.PropertyInfo? s_pivot;
 
     /// <summary>The strategy camera placed at a boom length (its pivot, heading and tilt kept): Meitou's StrategyCamera.Place, whichever shape
     /// this Meitou has. False when it has neither (logged once at start).</summary>
@@ -91,7 +97,12 @@ public static class Access
         try
         {
             if (s_place4 is not null) { s_place4.Invoke(strat, [pivot, yaw, pitch, distance]); return true; }
-            if (s_place5 is not null) { s_place5.Invoke(strat, [pivot, yaw, pitch, distance, null]); return true; }
+            if (s_place5 is not null)
+            {
+                float? height = s_pivot?.GetValue(strat) is System.Numerics.Vector3 p && float.IsFinite(p.Y) ? p.Y : null;
+                s_place5.Invoke(strat, [pivot, yaw, pitch, distance, height]);
+                return true;
+            }
         }
         catch (Exception e) { Log.Exception("StrategyCamera.Place", e); }
         return false;
