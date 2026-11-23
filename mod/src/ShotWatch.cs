@@ -20,6 +20,9 @@ public sealed class ShotWatch : ICombatHitObserver
     public sealed record KillCamSwitches(bool Kills, bool Knockouts, bool Limbs, bool Own, double Seconds);
 
     static readonly Dictionary<long, int> s_severed = new();
+    /// <summary>0.6.1: one close-up per victim per time down (tick thread only).</summary>
+    public static readonly KillCamGate Gate = new();
+    static readonly System.Diagnostics.Stopwatch s_clock = System.Diagnostics.Stopwatch.StartNew();
     const int SeveredCap = 4096;
     static World? s_world;
 
@@ -38,7 +41,7 @@ public sealed class ShotWatch : ICombatHitObserver
 
     public void HitResolved(World world, in CombatHit hit)
     {
-        if (!ReferenceEquals(world, s_world)) { s_world = world; s_severed.Clear(); }
+        if (!ReferenceEquals(world, s_world)) { s_world = world; s_severed.Clear(); Gate.Clear(); }
         var watch = Shots.Watch;
         var kc = Driver.Settings.KillCamShots ? KillCam : null;
         bool onShot = watch is not null && hit.Attacker == watch.Attacker && hit.Victim == watch.Victim;
@@ -60,9 +63,15 @@ public sealed class ShotWatch : ICombatHitObserver
         var what = onShot
             ? Judge(hit.VictimWasAlive, hit.VictimWasIncapacitated, m.Dead, m.Unconscious || m.Dead, sevBefore, sevNow, partSevered)
             : Judge(hit.VictimWasAlive, hit.VictimWasIncapacitated, m.Dead, m.Unconscious || m.Dead, sevBefore, sevNow, partSevered, kc!.Kills, kc.Knockouts, kc.Limbs);
+        if (!m.Dead && !m.Unconscious) Gate.SeenStanding(key);
         if (what == What.None) return;
         var (att, vic) = (hit.Attacker, hit.Victim);
         string w = what.ToString().ToLowerInvariant();
+        if (!Gate.Allow(key, w, s_clock.Elapsed.TotalSeconds, out string no))
+        {
+            Counters.Add("killcam.gate." + (no == "already down" ? "down" : no == "already dead" ? "dead" : "gap"));
+            return;
+        }
         double sec = kc?.Seconds ?? 1;
         Driver.Queue(() => Shots.KillCamMoment(att, vic, w, sec), "shot watch: " + w);
     }

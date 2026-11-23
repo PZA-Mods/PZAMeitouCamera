@@ -1,4 +1,4 @@
-# PZA's Director's Kit for Meitou (beta 0.6.0)
+# PZA's Director's Kit for Meitou (beta 0.6.1)
 
 **PZA's Director's Kit** (formerly PZA's Camera): thirteen ready-made camera looks for Meitou, one click each: Diorama, Isometric, Top-down, Side view, Hip level, Turntable, Chase, Cinematic
 and more, with Off-centre, Dutch angle, a 0.5x lens and Fisheye on top. Click the active camera again and you are back to Meitou's own. A port of
@@ -26,7 +26,8 @@ it, mouse wheel for its opacity. Tabs:
   Cinematic zoom lock.
 - **SETTINGS**: every value with - / + / Reset.
 - **SHOTS** (0.5.0): **Kill cam shots** (off by default): when PZA's SlowMo's kill cam slows time for a kill, knockout or severed limb,
-  the camera cuts to a close-up of that moment, then eases back to yours. **Called-shot shots**: a called-shot mod can ask for
+  your own camera (its angle and zoom) glides onto the target and eases in gently, then eases back (0.6.1: **Kill cam push-in**,
+  0-80%, default 25%, and **Kill cam ease**, 0.5-3 s, default 1.5 s; one per knockout, a kill after it once, at least 3 s apart). **Called-shot shots**: a called-shot mod can ask for
   cinematic angles (a two-shot while you pick, then over the shoulder, side-on and low, close on the target or behind a bolt, and back
   to your camera); a blocked angle is skipped, so the camera never ends up in a wall, a rock or a character. **Preview a shot** tries
   it on your selected character; - / + / Reset for the shots' speeds and lengths. **Focus pull** (0.6.0): the shots focus on their
@@ -46,7 +47,7 @@ parts are greyed out or leave time alone.
 ## Install
 - **Workshop:** subscribe to PZA's Director's Kit, then tick **PZADirectorsKit** in Meitou's mod list. The Workshop item also carries the
   RE_Kenshi version for the original game; each game loads only its own file.
-- **By hand (GitHub):** unpack `PZACamera.Meitou-0.6.0-beta.zip` into Kenshi's folder (`Kenshi\mods\PZADirectorsKit\`), then tick
+- **By hand (GitHub):** unpack `PZACamera.Meitou-0.6.1-beta.zip` into Kenshi's folder (`Kenshi\mods\PZADirectorsKit\`), then tick
   **PZADirectorsKit** in Meitou's mod list. Coming from 0.3.x: remove the old copy first (the files
   `PZACamera.Meitou.dll` and `meitou.json` in `mods\PZACamera\`) so the camera is not loaded twice.
 - No items or world data; load order doesn't matter. Safe to remove at any time.

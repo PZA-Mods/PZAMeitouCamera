@@ -24,6 +24,11 @@ public static class CameraApi
     /// <summary>A run is on (the two-shot, a shot, between shots, an impact or the way back).</summary>
     public static bool Busy => Shots.Active;
 
+    /// <summary>0.6.1 (an addition to v1): the Kit holds the camera now (the two-shot, a shot, between shots, an impact). False on the way back
+    /// (the Kit eases onto whatever is drawn each frame) and when idle. A view mod (PZA's WASD &amp; Controller Support) stands aside while this
+    /// is true and puts its view back the moment it turns false; the way back then lands on that view.</summary>
+    public static bool Holding => Shots.Holding;
+
     /// <summary>Read only (2026-11-20, for a controller's right-stick flick): the settle step of the camera in effect now, degrees; 0 when it
     /// does not settle (camera off or stood down, or a camera without settle steps). Isometric / Pixel Isometric: their settle step; Diorama /
     /// Diorama Low: theirs (0 = free turning); Side view: its 90-degree steps. Cinematic gives the camera it plays now.</summary>

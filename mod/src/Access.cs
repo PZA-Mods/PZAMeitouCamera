@@ -65,6 +65,13 @@ public static class Access
 
         s_follow = AccessTools.Property(player, "Follow")!;
         if (s_follow is null || s_follow.PropertyType != typeof(global::Meitou.Simulation.CharacterId?)) missing.Add("property PlayerInterface.Follow");
+        // 0.6.1 (the 0.22.2 nightly of 2026-11-22 added a fifth parameter, float? height = null): StrategyCamera.Place is found by its shape,
+        // old or new, never bound at compile time (an optional parameter is filled in by the compiler, so a 0.20.1 build calls the 4-argument
+        // one and fails on a Meitou that only has 5). A miss only turns the zoom stops, the zoom band and the Cinematic zoom lock off.
+        var v2 = typeof(System.Numerics.Vector2);
+        s_place4 = AccessTools.Method(typeof(StrategyCamera), "Place", [v2, typeof(float), typeof(float), typeof(float)]);
+        s_place5 = s_place4 is null ? AccessTools.Method(typeof(StrategyCamera), "Place", [v2, typeof(float), typeof(float), typeof(float), typeof(float?)]) : null;
+        if (s_place4 is null && s_place5 is null) Log.Line("StrategyCamera.Place not found: zoom stops, the zoom band and the Cinematic zoom lock stay off");
         // optional: the message line (as PZA's SlowMo and WASD Control); a miss only turns the messages off
         s_notice = AccessTools.Method(player, "Notice", [typeof(string), typeof(bool), typeof(string)]);
 
@@ -74,6 +81,24 @@ public static class Access
             if (t.GetMethod(name) is null) missing.Add($"method {t.Name}.{name}");
         return missing;
     }
+
+    static System.Reflection.MethodInfo? s_place4, s_place5;
+
+    /// <summary>The strategy camera placed at a boom length (its pivot, heading and tilt kept): Meitou's StrategyCamera.Place, whichever shape
+    /// this Meitou has. False when it has neither (logged once at start).</summary>
+    public static bool PlaceStrategy(StrategyCamera strat, System.Numerics.Vector2 pivot, float yaw, float pitch, float distance)
+    {
+        try
+        {
+            if (s_place4 is not null) { s_place4.Invoke(strat, [pivot, yaw, pitch, distance]); return true; }
+            if (s_place5 is not null) { s_place5.Invoke(strat, [pivot, yaw, pitch, distance, null]); return true; }
+        }
+        catch (Exception e) { Log.Exception("StrategyCamera.Place", e); }
+        return false;
+    }
+
+    /// <summary>Which StrategyCamera.Place this Meitou has (the check): 4, 5 or 0 (none).</summary>
+    public static int PlaceShape => s_place4 is not null ? 4 : s_place5 is not null ? 5 : 0;
 
     static AccessTools.FieldRef<object, T> Field<T>(Type t, string name, List<string> missing)
     {
@@ -168,8 +193,33 @@ public static class Access
 
     #region PZA's WASD Control (optional, read only)
 
+    static bool s_wasdApiLooked;
+    static MethodInfo? s_wasdNormal;
+
+    /// <summary>0.6.1 (agreed with PZA's WASD &amp; Controller Support, 2026-11-21: the latest player choice wins): a Kit camera picked while a
+    /// WASD view is on asks WASD for its normal view through its WasdApi.SetNormalView(string caller), found by name. Without it the Kit stays
+    /// stood down for the view, as before, and says so once.</summary>
+    public static void AskWasdNormalView(string from)
+    {
+        if (!s_wasdApiLooked)
+        {
+            s_wasdApiLooked = true;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type? t = null;
+                try { t = asm.GetType("PZA.WASDControl.Meitou.WasdApi"); } catch { }
+                if (t?.GetMethod("SetNormalView", BindingFlags.Public | BindingFlags.Static, [typeof(string)]) is { } m) { s_wasdNormal = m; break; }
+            }
+            Log.Line(s_wasdNormal is null ? "PZA's WASD Control has no WasdApi.SetNormalView: its view stays on until you turn it off" : "PZA's WASD Control's WasdApi.SetNormalView found");
+        }
+        if (s_wasdNormal is null) return;
+        try { s_wasdNormal.Invoke(null, ["pza.camera"]); Counters.Add("wasd.normal_view_asked"); Log.Line($"asked PZA's WASD Control for its normal view ({from})"); }
+        catch (Exception e) { Log.Exception("WasdApi.SetNormalView", e); }
+    }
+
     static bool s_wasdLooked;
     static FieldInfo? s_wasdOn, s_wasdView;
+    static PropertyInfo? s_wasdActive;   // 0.6.1: WasdApi v1's ViewActive (WASD 995572e), preferred over its internals
 
     /// <summary>PZA's WASD Control for Meitou has one of its own views on (over the shoulder, first person): it places the drawn camera itself
     /// (its SandboxScenario.FollowCamera postfix), so this mod stands down. Read by name from its assembly when it is loaded; false without it.</summary>
@@ -181,10 +231,16 @@ public static class Access
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 if (asm.GetType("PZA.WASDControl.Meitou.Driver") is not { } d) continue;
+                s_wasdActive = asm.GetType("PZA.WASDControl.Meitou.WasdApi")?.GetProperty("ViewActive", BindingFlags.Public | BindingFlags.Static);
+                if (s_wasdActive?.PropertyType != typeof(bool)) s_wasdActive = null;
                 s_wasdOn = d.GetField("On", BindingFlags.Public | BindingFlags.Static);
                 s_wasdView = asm.GetType("PZA.WASDControl.Meitou.Views")?.GetField("Current", BindingFlags.Public | BindingFlags.Static);
-                Log.Line($"PZA's WASD Control found: its views {(s_wasdOn is not null && s_wasdView is not null ? "are watched" : "cannot be read (stand-down by the camera check only)")}");
+                Log.Line($"PZA's WASD Control found: its views {(s_wasdActive is not null ? "are watched (WasdApi.ViewActive)" : s_wasdOn is not null && s_wasdView is not null ? "are watched" : "cannot be read (stand-down by the camera check only)")}");
             }
+        }
+        if (s_wasdActive is not null)
+        {
+            try { return s_wasdActive.GetValue(null) is true; } catch { s_wasdActive = null; }
         }
         if (s_wasdOn?.GetValue(null) is not true || s_wasdView?.GetValue(null) is not { } v) return false;
         return v.ToString() != "Normal";

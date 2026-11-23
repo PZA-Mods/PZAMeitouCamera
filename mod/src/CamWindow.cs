@@ -105,14 +105,17 @@ public static class CamWindow
         sy += 0.09;
         shots.Add(L.Button("ShotPreview", 0.03, sy, 0.94, 0.075));
         sy += 0.1;
+        // 0.6.1: ten rows with PZA's SlowMo: a tighter pitch so the last one stays inside the tab
+        int nRows = ShotRows.Count();
+        double pitch = nRows > 8 ? Math.Min(0.084, (0.985 - sy) / nRows) : 0.084, rh = pitch - 0.008;
         foreach (var r in ShotRows)
         {
             string k = r.Key;
-            shots.Add(L.Text("Lb_" + k, 0.03, sy, 0.47, 0.072));
-            shots.Add(L.Button("Minus_" + k, 0.51, sy, 0.09, 0.072));
-            shots.Add(L.Button("Plus_" + k, 0.61, sy, 0.09, 0.072));
-            shots.Add(L.Button("Reset_" + k, 0.71, sy, 0.26, 0.072));
-            sy += 0.084;
+            shots.Add(L.Text("Lb_" + k, 0.03, sy, 0.47, rh));
+            shots.Add(L.Button("Minus_" + k, 0.51, sy, 0.09, rh));
+            shots.Add(L.Button("Plus_" + k, 0.61, sy, 0.09, rh));
+            shots.Add(L.Button("Reset_" + k, 0.71, sy, 0.26, rh));
+            sy += pitch;
         }
 
         var tabs = new List<(string, string[])> { ("TabCams", [.. cams]), ("TabView", [.. view]), ("TabSettings", [.. rows]) };
@@ -129,7 +132,8 @@ public static class CamWindow
     public static (bool SlowMo, bool Caller) ShotDeps() => DepsOverride?.Invoke() ?? (SlowLink.Available, Shots.CallerSeen);
 
     /// <summary>The time rows need PZA's SlowMo (they are its speeds).</summary>
-    static readonly string[] TimeRows = [nameof(CamSettings.ShotPickSpeed), nameof(CamSettings.ShotSpeed), nameof(CamSettings.ShotBetweenSpeed), nameof(CamSettings.ShotImpactSpeed)];
+    static readonly string[] TimeRows = [nameof(CamSettings.ShotPickSpeed), nameof(CamSettings.ShotSpeed), nameof(CamSettings.ShotBetweenSpeed), nameof(CamSettings.ShotImpactSpeed),
+        nameof(CamSettings.KillCamPush), nameof(CamSettings.KillCamEase)];   // 0.6.1: the kill cam rows need PZA's SlowMo too
 
     /// <summary>The SHOTS rows the window shows (as built).</summary>
     public static IEnumerable<Rows.Row> ShotRows => ShotsTab ? Rows.Shots.Where(r => ShotsSlowMo || !TimeRows.Contains(r.Key)) : [];
@@ -208,6 +212,7 @@ public static class CamWindow
     public static string Value(string key)
     {
         double v = (double)typeof(CamSettings).GetProperty(key)!.GetValue(Driver.Settings)!;
+        if (key == nameof(CamSettings.KillCamPush)) return v.ToString("0", CultureInfo.InvariantCulture);   // 0.6.1: a percentage
         if (Rows.Shots.Any(r => r.Key == key)) return v.ToString("0.0#", CultureInfo.InvariantCulture);   // 0.5.0: speeds and seconds
         return key == nameof(CamSettings.WideZoom) ? v.ToString("0.00", CultureInfo.InvariantCulture) : v.ToString("0", CultureInfo.InvariantCulture);
     }

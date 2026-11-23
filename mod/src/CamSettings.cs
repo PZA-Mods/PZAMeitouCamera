@@ -261,8 +261,15 @@ public sealed class CamSettings
     [Setting("Called-shot shots", Hint = "A called-shot mod may frame the attacker and the target while you pick, and cut to cinematic angles while the strikes play out (CameraApi). Off: it can't.", VisibleWhen = nameof(CalledShotModHere))]
     public bool Shots { get; set; } = true;
 
-    [Setting("Kill cam shots", Hint = "When PZA's SlowMo's kill cam slows time for a kill, knockout or severed limb, the camera cuts to a close-up for that moment, then comes back.", VisibleWhen = nameof(SlowMoHere))]
+    [Setting("Kill cam shots", Hint = "When PZA's SlowMo's kill cam slows time for a kill, knockout or severed limb, your camera glides onto the target from your own zoom and eases in a little, then comes back.", VisibleWhen = nameof(SlowMoHere))]
     public bool KillCamShots { get; set; }
+
+    // 0.6.1 (the user, 2026-11-22): the kill cam keeps the player's view and only focuses and pushes in, both on sliders
+    [Setting("Kill cam push-in", Hint = "How far the kill cam eases in, as a share of your own zoom (0 = it only turns to the target; 80 = about a close-up).", Min = 0, Max = 80, Step = 5, VisibleWhen = nameof(SlowMoHere))]
+    public double KillCamPush { get; set; } = 25;
+
+    [Setting("Kill cam ease", Hint = "Seconds the kill cam takes to glide onto the target and ease in; the way back takes as long.", Min = 0.5, Max = 3, Step = 0.1, VisibleWhen = nameof(SlowMoHere))]
+    public double KillCamEase { get; set; } = 1.5;
 
     [Setting("Shot time", Hint = "The shots slow time through PZA's SlowMo (when the calling mod hands time to the camera). Off: time is left to the calling mod.", VisibleWhen = nameof(SlowMoHere))]
     public bool ShotTime { get; set; } = true;

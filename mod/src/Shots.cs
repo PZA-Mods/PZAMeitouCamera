@@ -9,7 +9,7 @@
 //   Return   the release: the camera eases back to the player's camera as it is drawn THIS frame, so it lands exactly on the player's camera
 //            and settings (the shots never touch the rig, a setting or the player's own camera layer; the game redraws those every frame).
 // Time is asked of PZA's SlowMo's hold door (SlowLink, holder "pza.camera.shot"), only when the caller handed time to the camera; never set here.
-// Paused game (Driver.Paused): the run's timers stand still, eases under way finish. Caps: a two-shot left on for 2 minutes, "between" for 15 s, or a character gone for 1 s ends in a Return; a new world or the title screen
+// Paused game (Driver.Paused): the run's timers stand still, eases under way finish. Caps: a two-shot left on for 2 minutes, "between" for 3 s, or a character gone for 1 s ends in a Return; a new world or the title screen
 // stops at once. One caller at a time (the kill cam shots give way to a caller).
 using System.Numerics;
 using Meitou.Game.Host;
@@ -24,7 +24,8 @@ public static class Shots
     public enum Mode { None, Frame, Shot, Between, Impact, Return }
 
     public const string KillCamCaller = "pza.camera.killcam", PreviewCaller = "pza.camera.preview";
-    public const double FrameMax = 120, BetweenMax = 15, MissingMax = 1, BlockedMax = 0.25, PreviewFrame = 1.2;
+    public const double FrameMax = 120, BetweenMax = 3,   // 0.6.1: was 15; a caller that never releases kept the view 15 s (WASD headless run); 3 s still bridges strikes ~1 s apart
+                         MissingMax = 1, BlockedMax = 0.25, PreviewFrame = 1.2;
 
     static volatile int s_mode;
     static volatile string s_caller = "", s_playing = "";
@@ -37,6 +38,16 @@ public static class Shots
     static Random s_rng = new();
     static WorldSession? s_session;
     static Vector3 s_attPos, s_vicPos;
+    static bool s_vicDown;
+    /// <summary>0.6.1: the side of the last shot of this fight (kept so close-ups don't flip left / right) and the pair it was for.</summary>
+    static int s_keepSide;
+    static (CharacterId, CharacterId) s_sidePair;
+    /// <summary>0.6.1 (the user, 2026-11-22): a kill cam moment keeps the player's view: its look point glides onto the target and its zoom
+    /// eases in (ShotCore.KillFocus) instead of the cut to a close-up. s_focusT: real seconds since it began (still while paused).</summary>
+    static bool s_focus;
+    static double s_focusT;
+    /// <summary>The kill cam focus drawn now (the check reads it): true while a kill cam moment keeps the player's view.</summary>
+    public static bool Focusing => s_focus && Active;
 
     /// <summary>0.6.0: the depth-of-field switch (get, set), wired to GameHost.WorldOptions.Post.PhotoDepthOfField when Meitou has it (CameraMod);
     /// null = no shot focus. The offline check plugs its own in.</summary>
@@ -57,6 +68,9 @@ public static class Shots
     public static volatile bool CallerSeen;
 
     public static Mode Now => (Mode)s_mode;
+
+    /// <summary>0.6.1: the Kit holds the camera (the two-shot, a shot, between shots, an impact); false on the way back and when idle.</summary>
+    public static bool Holding => s_mode is (int)Mode.Frame or (int)Mode.Shot or (int)Mode.Between or (int)Mode.Impact;
     public static bool Active => s_mode != (int)Mode.None;
     public static string Caller => s_caller;
     /// <summary>The angle on screen now ("OverShoulder", ...; "" = none).</summary>
@@ -69,15 +83,21 @@ public static class Shots
 
     /// <summary>Whether <paramref name="caller"/> may take the camera now: the setting is on, and nobody else (but the kill cam shots) holds it.</summary>
     public static bool MayTake(string caller) =>
-        Driver.Settings.Shots && (!Active || s_caller == caller || s_caller == KillCamCaller || s_mode == (int)Mode.Return);
+        SwitchOn(caller) && (!Active || s_caller == caller || s_caller == KillCamCaller || s_mode == (int)Mode.Return);
+
+    /// <summary>0.6.1 (a code review, 2026-11-22): the switch that governs <paramref name="caller"/>: the kill cam's own "Kill cam shots",
+    /// everyone else's "Called-shot shots". Before, the kill cam was refused whenever called-shot shots were off.</summary>
+    public static bool SwitchOn(string caller) => caller == KillCamCaller ? Driver.Settings.KillCamShots : Driver.Settings.Shots;
+    static string SwitchName(string caller) => caller == KillCamCaller ? "kill cam shots" : "called-shot shots";
 
     /// <summary>Starts or changes a run. <paramref name="mode"/>: Frame, Shot or Impact.</summary>
     public static bool Start(string caller, CharacterId att, CharacterId vic, Mode mode, ShotKind want, double seconds, bool time, bool endAfter, string from)
     {
         if (!MayTake(caller))
         {
-            Counters.Add(Driver.Settings.Shots ? "shot.refused.busy" : "shot.refused.off");
-            Log.Line(Driver.Settings.Shots ? $"shot refused: {caller} ({from}) while {s_caller} has the camera" : $"shot refused: called-shot shots are off ({caller}, {from})");
+            bool on = SwitchOn(caller);
+            Counters.Add(on ? "shot.refused.busy" : "shot.refused.off");
+            Log.Line(on ? $"shot refused: {caller} ({from}) while {s_caller} has the camera" : $"shot refused: {SwitchName(caller)} are off ({caller}, {from})");
             return false;
         }
         if (att.IsNone || vic.IsNone) { Counters.Add("shot.refused.no_character"); return false; }
@@ -90,6 +110,7 @@ public static class Shots
         s_time = time;
         s_endAfter = endAfter;
         s_missing = 0;
+        s_focus = false;
         Enter(mode, want, seconds, from);
         return true;
     }
@@ -146,7 +167,29 @@ public static class Shots
             return;
         }
         if (!Driver.Settings.KillCamShots) return;
-        Start(KillCamCaller, att, vic, Mode.Impact, ShotKind.ImpactClose, seconds, time: false, endAfter: true, "PZA's SlowMo kill cam: " + what);
+        if (Active && s_caller == KillCamCaller && s_mode != (int)Mode.Return && vic == s_vic) { Counters.Add("killcam.same_victim"); return; }
+        // 0.6.1: the moment lasts at least the ease in, so the push-in is seen through (SlowMo's slow time has ended by then; that's fine)
+        double ease = EaseSeconds();
+        if (!Start(KillCamCaller, att, vic, Mode.Impact, ShotKind.ImpactClose, Math.Max(double.IsFinite(seconds) ? seconds : 0, ease), time: false, endAfter: true,
+            "PZA's SlowMo kill cam: " + what)) return;
+        s_focus = true;
+        s_focusT = 0;
+        s_pendingPick = false;
+        s_playing = "KillFocus";
+        Counters.Add("killcam.focus");
+        Log.Line($"kill cam focus: your view glides onto the target and eases in {PushPercent():0}% over {ease:0.0} s ({what})");
+    }
+
+    static double EaseSeconds() => Math.Clamp(double.IsFinite(Driver.Settings.KillCamEase) ? Driver.Settings.KillCamEase : 1.5, 0.5, 3);
+    static double PushPercent() => Math.Clamp(double.IsFinite(Driver.Settings.KillCamPush) ? Driver.Settings.KillCamPush : 25, 0, ShotCore.KillPushMax);
+
+    /// <summary>The kill cam focus at <paramref name="t"/> real seconds: the look point arrives in the first 60% of the ease (the target is
+    /// centred first), the push-in takes the whole ease; both smoothstepped, so it starts and lands without a jolt.</summary>
+    public static (float Aim, float Push) FocusEase(double t, double ease)
+    {
+        if (!double.IsFinite(t) || t < 0) t = 0;
+        if (!double.IsFinite(ease) || ease <= 0) ease = 1.5;
+        return (ShotCore.Smooth((float)Math.Min(1, t / (0.6 * ease))), ShotCore.Smooth((float)Math.Min(1, t / ease)));
     }
 
     static void Enter(Mode mode, ShotKind want, double seconds, string from)
@@ -186,7 +229,8 @@ public static class Shots
         s_mode = (int)Mode.Return;
         s_from = s_drawn;
         s_blendT = 0;
-        s_blendLen = Math.Clamp(double.IsFinite(Driver.Settings.ShotReturnSeconds) ? Driver.Settings.ShotReturnSeconds : 0.6, 0, 3);
+        s_blendLen = s_focus ? EaseSeconds()   // 0.6.1: the kill cam focus eases back as slowly as it went in
+            : Math.Clamp(double.IsFinite(Driver.Settings.ShotReturnSeconds) ? Driver.Settings.ShotReturnSeconds : 0.6, 0, 3);
         s_preview = false;
         Watch = null;
         SlowLink.Release(why);
@@ -204,6 +248,7 @@ public static class Shots
         s_playing = "";
         s_preview = false;
         s_havePose = false;
+        s_focus = false;
         Watch = null;
         SlowLink.Release(why);
         DofOff(why);
@@ -227,7 +272,7 @@ public static class Shots
         if (s_mode == (int)Mode.None) { s_session = session; return; }
         if (!ReferenceEquals(session, s_session) && s_session is not null) { s_session = session; Stop("a new world"); return; }
         s_session = session;
-        if (!Driver.Settings.Shots && s_mode != (int)Mode.Return) BeginReturn("called-shot shots switched off");
+        if (!SwitchOn(s_caller) && s_mode != (int)Mode.Return) BeginReturn(SwitchName(s_caller) + " switched off");
         s_inMode += tdt;
 
         CharacterSnapshot? a = null, v = null;
@@ -245,6 +290,7 @@ public static class Shots
         {
             s_missing = 0;
             (s_attPos, s_vicPos) = (a.Position, v.Position);
+            s_vicDown = v.Body is { } vb && (vb.Dead || vb.Unconscious || vb.PlayingDead);
         }
 
         var basePose = new Pose(cam.Target, cam.Yaw, cam.Pitch, cam.Distance, cam.FieldOfView, cam.Roll);
@@ -256,7 +302,7 @@ public static class Shots
                 s_endAfter = true;
                 break;
             case Mode.Frame when s_inMode > FrameMax: BeginReturn("the two-shot was left on for 2 minutes"); break;
-            case Mode.Between when s_inMode > BetweenMax: BeginReturn("15 s between shots with no word"); break;
+            case Mode.Between when s_inMode > BetweenMax: BeginReturn($"{BetweenMax:0} s between shots with no word"); break;
             case Mode.Shot or Mode.Impact:
                 s_left -= tdt;
                 if (s_left <= 0)
@@ -280,6 +326,12 @@ public static class Shots
                 return;   // nothing written this frame: exactly the player's camera
             }
         }
+        else if (s_focus)
+        {   // 0.6.1: the player's live view, its look point on the target, its zoom eased in; lifted only where Meitou would lift it anyway
+            s_focusT += tdt;
+            var (aim, push) = FocusEase(s_focusT, EaseSeconds());
+            drawn = ShotCore.Lift(ShotCore.KillFocus(basePose, ShotCore.Subject(s_vicPos, s_vicDown), aim, push, PushPercent()), ground);
+        }
         else
         {
             var scene = Scene(bolts, a);
@@ -289,14 +341,14 @@ public static class Shots
             {   // 10 times a second: is the line still clear? A bolt that landed hands over to the target
                 double step = s_recheck;
                 s_recheck = 0;
-                var live = ShotCore.Place(s_kind, s_side, scene, basePose.Fov);
+                var live = ShotCore.PlaceLifted(s_kind, s_side, scene, basePose.Fov, ground);
                 string? no = live is { } lp ? ShotCore.Blocked(s_kind, lp, scene, ground, others, clear) : "the bolt landed";
                 s_blockedFor = no is null ? 0 : s_blockedFor + step;
                 if (live is null) Pick(scene, others, basePose.Fov, ground, clear, "the bolt landed", ShotKind.ImpactClose);
                 else if (s_blockedFor > BlockedMax) Pick(scene, others, basePose.Fov, ground, clear, no!, s_kind == ShotKind.Frame ? ShotKind.Frame : ShotKind.None);
             }
             if (s_mode == (int)Mode.Return || s_mode == (int)Mode.None) return;
-            var goal = ShotCore.Place(s_kind, s_side, scene, basePose.Fov) ?? s_drawn;
+            var goal = ShotCore.PlaceLifted(s_kind, s_side, scene, basePose.Fov, ground) ?? s_drawn;
             if (s_blendT < s_blendLen)
             {
                 s_blendT += dt;
@@ -332,6 +384,7 @@ public static class Shots
         if (Dof is not { } dof || !Driver.Settings.ShotFocus) { DofOff("shot focus off"); return; }
         float t;
         if (mode == Mode.Return) t = 1 - (float)(s_blendLen <= 0 ? 1 : Math.Min(1, s_blendT / s_blendLen));
+        else if (s_focus) t = FocusEase(s_focusT, EaseSeconds()).Aim;   // 0.6.1: the background softens as the view settles on the target
         else if (s_freshFromPlayer && s_blendT < s_blendLen) t = (float)(s_blendT / s_blendLen);
         else { t = 1; s_freshFromPlayer = false; }
         float ap = ShotCore.Aperture(Driver.Settings.ShotAperture, s_kind, t);
@@ -365,7 +418,7 @@ public static class Shots
         Vector3 dir = default;
         foreach (var b in bolts)
             if (b.Shooter == s_att && !b.Stuck) { bolt = b.Position; dir = b.Direction; }   // the newest in flight
-        return new ShotScene(s_attPos, s_vicPos, bolt, dir, a?.RangedDrawn ?? false);
+        return new ShotScene(s_attPos, s_vicPos, bolt, dir, a?.RangedDrawn ?? false, s_vicDown);
     }
 
     static List<Vector3> Others(IReadOnlyList<CharacterSnapshot> chars, ShotScene s)
@@ -388,7 +441,8 @@ public static class Shots
         s_pendingPick = false;
         s_blockedFor = 0;
         var w = want ?? s_kind;
-        var pick = ShotCore.Choose(w, scene, fov, ground, others, clear, s_rng, avoid: s_last);
+        int keep = s_sidePair == (s_att, s_vic) ? s_keepSide : 0;
+        var pick = ShotCore.Choose(w, scene, fov, ground, others, clear, s_rng, avoid: s_last, keepSide: keep);
         if (pick.Kind == ShotKind.None)
         {
             Counters.Add("shot.all_blocked");
@@ -400,11 +454,17 @@ public static class Shots
         if (cut) { s_blendT = s_blendLen = 0; }
         s_kind = pick.Kind;
         s_side = pick.Side;
+        (s_keepSide, s_sidePair) = (pick.Side, (s_att, s_vic));
         if (pick.Kind != ShotKind.Frame && pick.Kind != ShotKind.Overview) s_last = pick.Kind;
         s_playing = pick.Kind.ToString();
         Counters.Add("shot.pick." + pick.Kind);
         if (pick.Tried > 1) Counters.Add("shot.fallback");
-        Log.Line($"shot angle: {pick.Kind} from the {(pick.Side > 0 ? "right" : "left")} ({why}{(pick.Tried > 1 ? $"; {pick.Tried - 1} blocked first: {pick.Why.TrimEnd(' ', ';')}" : "")})");
+        // 0.6.1: where the camera really is, so a play log shows what the player saw
+        var eye = pick.Pose.Eye;
+        float g = ground?.Invoke(eye.X, eye.Z) ?? float.NaN;
+        string place = $"eye {(float.IsFinite(g) ? (eye.Y - g).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " above the ground" : "over no ground")}, "
+            + $"{pick.Pose.Pitch / CamCore.Deg:0} degrees down, {pick.Pose.Distance:0} away{(scene.VictimDown ? ", the target is down" : "")}";
+        Log.Line($"shot angle: {pick.Kind} from the {(pick.Side > 0 ? "right" : "left")}; {place} ({why}{(pick.Tried > 1 ? $"; {pick.Tried - 1} blocked first: {pick.Why.TrimEnd(' ', ';')}" : "")})");
     }
 
     #endregion

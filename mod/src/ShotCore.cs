@@ -26,7 +26,8 @@ public readonly record struct Pose(Vector3 Target, float Yaw, float Pitch, float
 }
 
 /// <summary>What a shot is about: feet positions, the attacker's facing, a bolt in flight (ranged), the other characters near (feet).</summary>
-public readonly record struct ShotScene(Vector3 Attacker, Vector3 Victim, Vector3? Bolt = null, Vector3 BoltDir = default, bool Ranged = false);
+public readonly record struct ShotScene(Vector3 Attacker, Vector3 Victim, Vector3? Bolt = null, Vector3 BoltDir = default, bool Ranged = false,
+    bool VictimDown = false);
 
 /// <summary>The picker's answer. Kind None = nothing clear: leave the player's camera alone.</summary>
 public readonly record struct ShotPick(ShotKind Kind, int Side, Pose Pose, int Tried, string Why);
@@ -35,9 +36,37 @@ public static class ShotCore
 {
     /// <summary>A Kenshi human (ZoomStops.CharH) and the room kept round a body's axis.</summary>
     public const float H = 19.5f, BodyRadius = 4.5f;
+    /// <summary>0.6.1 (the user's first play, 2026-11-21: a blade filled the screen): the room kept round a character's axis at body height,
+    /// gear on the back included (spikes, a slung sword).</summary>
+    public const float GearRadius = 7.5f;
     /// <summary>The eye stays this far above the ground; the sight lines need this much air over it.</summary>
     public const float EyeClearance = 2f, SightMargin = 0.5f;
+
+    /// <summary>0.6.1: how high above the ground Meitou keeps the drawn eye (KenshiCamera.EyeClearance: min(0.2 x boom, 20) + 10; the same on
+    /// 0.20.1 - 0.22.1). Lower, GameLoop.KeepEyeAboveGround lifts the whole view, so the subject slides down the screen (seen in the user's
+    /// first play): such an angle is refused.</summary>
+    public static float MeitouClearance(float boom) => MathF.Min(0.2f * (float.IsFinite(boom) ? Math.Max(boom, 0) : 0), 20) + 10;
+
+    /// <summary>0.6.1: what a shot looks at on the target: the chest of a standing one, the body on the ground of a downed one.</summary>
+    public static Vector3 Subject(Vector3 feet, bool down) => down ? feet + new Vector3(0, 0.15f * H, 0) : Chest(feet);
     public const float MinDistance = 6, MaxDistance = 600;
+    /// <summary>0.6.1 kill cam focus: the push-in's top, a share of the player's zoom (80% is about the 0.6.0 close-up).</summary>
+    public const double KillPushMax = 80;
+
+    /// <summary>0.6.1 kill cam focus (the user, 2026-11-22: "I wish the camera didn't change the zoom the player has it currently set to, I
+    /// wish it would just focus the target from that distance, and zoom in very smoothly"): the player's own view (angle, tilt, lens, roll)
+    /// with its look point glided onto <paramref name="subject"/> (<paramref name="aim"/> 0..1) and its zoom eased in by
+    /// <paramref name="pushPercent"/> of itself (<paramref name="push"/> 0..1; 0..80%). Moving the look point is how Kenshi's own camera moves
+    /// when it follows someone else, so the shot reads as the player's camera, never as a cut.</summary>
+    public static Pose KillFocus(in Pose player, Vector3 subject, float aim, float push, double pushPercent)
+    {
+        aim = float.IsFinite(aim) ? Math.Clamp(aim, 0, 1) : 1;
+        push = float.IsFinite(push) ? Math.Clamp(push, 0, 1) : 1;
+        double share = (double.IsFinite(pushPercent) ? Math.Clamp(pushPercent, 0, KillPushMax) : 25) / 100;
+        var to = float.IsFinite(subject.X + subject.Y + subject.Z) ? subject : player.Target;
+        float d = player.Distance * (1 - (float)share * push);
+        return player with { Target = Vector3.Lerp(player.Target, to, aim), Distance = Math.Clamp(d, MinDistance, Math.Max(MinDistance, player.Distance)) };
+    }
     /// <summary>The shots' lenses (degrees); 0 = the player's lens.</summary>
     public const float ShoulderLens = 45, SideLens = 55, CloseLens = 40, BoltLens = 50;
 
@@ -87,19 +116,20 @@ public static class ShotCore
                 return Fit(t, eye, gameFov, l);
             }
             case ShotKind.OverShoulder:
-                return FromEye(Chest(s.Victim), s.Attacker - u * 11 + right * sd * 6 + up * (0.95f * H), ShoulderLens * CamCore.Deg);
+                return FromEye(Subject(s.Victim, s.VictimDown), s.Attacker - u * 13 + right * sd * 8 + up * (1.1f * H), ShoulderLens * CamCore.Deg);
             case ShotKind.SideLow:
             {   // side-on, low and wide
                 var t = mid + up * (0.45f * H);
                 return Fit(t, mid + right * sd * (0.85f * l + 26) + up * (0.22f * H), SideLens * CamCore.Deg, l);
             }
             case ShotKind.ImpactClose:
-            {   // close on the target, from the attacker's side, turned 40 degrees off the line
-                var t = Chest(s.Victim) + up * (0.1f * H);
+            {   // close on the target, from the attacker's side, turned 40 degrees off the line; a target on the ground: framed lower, wider and
+                // from higher (0.6.1: the standing chest height looked at the air above a downed body)
+                var t = s.VictimDown ? Subject(s.Victim, true) : Chest(s.Victim) + up * (0.1f * H);
                 float a = sd * 40 * CamCore.Deg;
                 var back = -u;
                 var dir = new Vector3(back.X * MathF.Cos(a) - back.Z * MathF.Sin(a), 0, back.X * MathF.Sin(a) + back.Z * MathF.Cos(a));
-                return FromEye(t, t + dir * 24 + up * 3, CloseLens * CamCore.Deg);
+                return s.VictimDown ? FromEye(t, t + dir * 30 + up * 17, SideLens * CamCore.Deg) : FromEye(t, t + dir * 26 + up * 4, CloseLens * CamCore.Deg);
             }
             case ShotKind.BoltFollow:
             {
@@ -121,6 +151,30 @@ public static class ShotCore
             }
         }
         return null;
+    }
+
+    /// <summary>0.6.1: a shot placed so Meitou keeps it as drawn: an eye below Meitou's clearance over the ground is lifted straight up to it
+    /// (the shot still aims at its subject), where Meitou would have lifted the whole view instead. Up to eight passes: lifting lengthens the boom,
+    /// which raises the clearance a little (a fifth of the rise at most, so it settles in a few passes).</summary>
+    public static Pose? PlaceLifted(ShotKind kind, int side, in ShotScene s, float gameFov, Func<float, float, float>? ground)
+    {
+        if (Place(kind, side, s, gameFov) is not { } p) return null;
+        return Lift(p, ground);
+    }
+
+    public static Pose Lift(Pose p, Func<float, float, float>? ground)
+    {
+        if (ground is null || !p.Finite) return p;
+        for (int i = 0; i < 8; i++)
+        {
+            var eye = p.Eye;
+            float g = ground(eye.X, eye.Z);
+            if (!float.IsFinite(g)) return p;
+            float need = g + MeitouClearance(p.Distance) + 0.5f;
+            if (eye.Y >= need) return p;
+            p = FromEye(p.Target, eye with { Y = need }, p.Fov, p.Roll);
+        }
+        return p;
     }
 
     /// <summary>The eye pushed back along its own line until both subjects (<paramref name="l"/> apart, plus a body's room) fit the lens.</summary>
@@ -146,16 +200,17 @@ public static class ShotCore
         if (ground is not null)
         {
             float g = ground(eye.X, eye.Z);
-            if (float.IsFinite(g) && eye.Y < g + EyeClearance) return "under the ground";
+            // 0.6.1: Meitou's clearance (10 at least) also covers the old "under the ground" rule (EyeClearance 2), which could no longer fire
+            if (float.IsFinite(g) && eye.Y < g + MeitouClearance(p.Distance) - 0.5f) return eye.Y < g + EyeClearance ? "under the ground" : "too low (Meitou would lift the view)";
         }
         foreach (var c in others)
         {
             if (!float.IsFinite(c.X + c.Y + c.Z)) continue;
             float dx = eye.X - c.X, dz = eye.Z - c.Z;
-            if (dx * dx + dz * dz < BodyRadius * BodyRadius && eye.Y > c.Y - 1 && eye.Y < c.Y + H + 1) return "inside a character";
+            if (dx * dx + dz * dz < GearRadius * GearRadius && eye.Y > c.Y - 1 && eye.Y < c.Y + H + 3) return "inside a character";
         }
         bool needsAttacker = kind is not (ShotKind.ImpactClose or ShotKind.BoltFollow);
-        if (!Sees(eye, Chest(s.Victim), ground, clear)) return "the target is hidden";
+        if (!Sees(eye, Subject(s.Victim, s.VictimDown), ground, clear)) return "the target is hidden";
         if (needsAttacker && !Sees(eye, Chest(s.Attacker), ground, clear)) return "the attacker is hidden";
         if (kind == ShotKind.BoltFollow && s.Bolt is { } b && !Sees(eye, b, ground, clear)) return "the bolt is hidden";
         return null;
@@ -189,15 +244,16 @@ public static class ShotCore
 
     /// <summary>The angle picker. Every kind of <see cref="Order"/> from both sides (a random side first); the first clear one wins.</summary>
     public static ShotPick Choose(ShotKind want, in ShotScene s, float gameFov, Func<float, float, float>? ground, IReadOnlyList<Vector3> others,
-        Func<Vector3, Vector3, bool>? clear, Random rng, ShotKind avoid = ShotKind.None)
+        Func<Vector3, Vector3, bool>? clear, Random rng, ShotKind avoid = ShotKind.None, int keepSide = 0)
     {
         int tried = 0;
         string why = "";
-        int first = rng.Next(2) == 0 ? 1 : -1;
+        // 0.6.1 (the user's first play: the close-ups flipped left / right shot after shot): the side of the last shot of the same fight first
+        int first = keepSide != 0 ? Math.Sign(keepSide) : rng.Next(2) == 0 ? 1 : -1;
         foreach (var k in Order(want, s, avoid, rng))
             foreach (int side in new[] { first, -first })
             {
-                if (Place(k, side, s, gameFov) is not { } p) continue;
+                if (PlaceLifted(k, side, s, gameFov, ground) is not { } p) continue;
                 tried++;
                 var no = Blocked(k, p, s, ground, others, clear);
                 if (no is null) return new ShotPick(k, side, p, tried, why);

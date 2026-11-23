@@ -63,6 +63,9 @@ public static class Driver
 
     static readonly ConcurrentQueue<(Action Do, string What)> s_pending = new();
     static bool s_applied, s_started;
+    /// <summary>0.6.1 (a code review, 2026-11-22): the world "Camera on at load" was last decided for; a new one decides again. Watched here,
+    /// not at a world's Dispose: on a load Meitou readies the new world before it disposes the old one.</summary>
+    static object? s_startedFor;
     static float s_appYaw, s_appPitch, s_appDist;
     static float s_pitch = float.NaN, s_gameFov = float.NaN, s_ourFov = float.NaN, s_ourRoll;
     static long s_lastFrame;
@@ -137,6 +140,7 @@ public static class Driver
         if (c == Cam.SideView) LineUpSide();
         if (s_lookOn && c != Cam.Diorama) EndLook("another camera picked");
         Counters.Add("pick." + c);
+        if (c != Cam.Off && Access.WasdViewOn()) Access.AskWasdNormalView(from);
         Log.Line($"camera {c} ({from}; was {was})");
         Notice(c == Cam.Off ? Strings.T("msg.off") : c == Cam.Cinematic ? Strings.TF("msg.cine", Strings.CamName(s_cine)) : Strings.TF("msg.camera", Strings.CamName(c)));
     }
@@ -331,6 +335,16 @@ public static class Driver
         (s_appYaw, s_appPitch, s_appDist) = (s.Yaw, s.Pitch, s.Distance);
     }
 
+    /// <summary>"Camera on at load", once per world (every save loaded, not only the session's first): <paramref name="ready"/> = in game
+    /// with a player. A new world also drops the Low-angle undo, which belonged to the old one.</summary>
+    public static void AtLoad(object session, bool ready)
+    {
+        if (!ReferenceEquals(session, s_startedFor)) { s_startedFor = session; s_started = false; s_lowUndo = null; }
+        if (s_started || !ready) return;
+        s_started = true;
+        if (Settings.StartOn && Current == Cam.Off) Pick(Cam.Diorama, "Camera on at load");
+    }
+
     /// <summary>Once a frame, after the follow camera and the other mods placed the drawn camera.</summary>
     public static void OnFrame()
     {
@@ -342,11 +356,7 @@ public static class Driver
         s_applied = false;
         if (Host is not { } host || Access.Camera(host) is not { } cam || Access.Session(host) is not { } session) return;
 
-        if (!s_started && PzaUi.InGame && session.World.Player.Exists)
-        {
-            s_started = true;
-            if (Settings.StartOn && Current == Cam.Off) Pick(Cam.Diorama, "Camera on at load");
-        }
+        AtLoad(session, PzaUi.InGame && session.World.Player.Exists);
 
         Ground = session.Camera.GroundAt;
         ShotWatch.HostFrame(s_clock.Elapsed.TotalSeconds);
@@ -356,7 +366,8 @@ public static class Driver
         SetStandDown(why);
         if (Current == Cam.Off || why is not null)
         {
-            HandBack(cam, quiet: Shots.Active);
+            if (why is not null && Access.WasdViewOn()) ForgetLens();   // 0.6.1: WASD's view owns the lens: never handed back over it
+            else HandBack(cam, quiet: Shots.Active);
             s_pitch = float.NaN;
             s_kv = KeepView.State.Home;
             (s_kvShownExtra, s_kvShownZoom) = (0, 1);
@@ -397,6 +408,15 @@ public static class Driver
             return walk is null ? null : (a, b) => walk.LineOfSight(a, b);
         }
         catch (Exception e) { Log.Exception("World.Walkability", e); return null; }
+    }
+
+    /// <summary>0.6.1: a view mod owns the lens now: what we wrote is simply forgotten (no hand-back over its lens).</summary>
+    static void ForgetLens()
+    {
+        if (float.IsNaN(s_ourFov)) return;
+        s_ourFov = float.NaN;
+        s_ourRoll = 0;
+        Counters.Add("lens.left_to_view_mod");
     }
 
     /// <summary>0.6.0: Photo Mode is starting (PhotoMode.Enter prefix, host thread). A running shot ends here (its time hold and depth of field
@@ -631,7 +651,7 @@ public static class Driver
             if (cap > 1 && want > cap) want = (float)cap;
         }
         if (MathF.Abs(want - d) <= 1e-3f) return;
-        strat.Place(strat.PivotXz, strat.Yaw, strat.Pitch, want);
+        if (!Access.PlaceStrategy(strat, strat.PivotXz, strat.Yaw, strat.Pitch, want)) return;
         Counters.Add("zoom.band");
     }
 
@@ -646,7 +666,7 @@ public static class Driver
             if (!Settings.CinematicZoomLock || !ZoomStops.Has(eff)) return;
             float mid = (float)StopsFor(eff)[1];
             if (MathF.Abs(strat.Distance - mid) <= 1e-3f) return;
-            strat.Place(strat.PivotXz, strat.Yaw, strat.Pitch, mid);
+            if (!Access.PlaceStrategy(strat, strat.PivotXz, strat.Yaw, strat.Pitch, mid)) return;
             Counters.Add("cinematic.zoom_locked");
             return;
         }
@@ -657,7 +677,7 @@ public static class Driver
         if (idx != was && was >= 0) { Counters.Add("stops.step"); Log.Line($"zoom stop {eff}: {(idx > was ? "out" : "in")} to {(new[] { "near", "mid", "far" })[idx]} ({stops[idx]:0})"); }
         if (MathF.Abs(strat.Distance - (float)stops[idx]) > 1e-3f)
         {
-            strat.Place(strat.PivotXz, strat.Yaw, strat.Pitch, (float)stops[idx]);
+            Access.PlaceStrategy(strat, strat.PivotXz, strat.Yaw, strat.Pitch, (float)stops[idx]);
             Counters.Add("stops.pinned");
         }
     }
@@ -752,6 +772,8 @@ public static class Rows
         new(nameof(CamSettings.ShotImpactSpeed), 0.05, 0.05, 1),
         new(nameof(CamSettings.ShotSeconds), 0.1, 0.2, 10),
         new(nameof(CamSettings.ShotImpactSeconds), 0.25, 0.25, 5),
+        new(nameof(CamSettings.KillCamPush), 5, 0, 80),      // 0.6.1
+        new(nameof(CamSettings.KillCamEase), 0.1, 0.5, 3),   // 0.6.1
         new(nameof(CamSettings.ShotReturnSeconds), 0.1, 0, 3),
         new(nameof(CamSettings.ShotAperture), 0.1, 0.7, 16),   // 0.6.0
     ];
