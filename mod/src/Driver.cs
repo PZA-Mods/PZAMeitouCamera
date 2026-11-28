@@ -366,8 +366,10 @@ public static class Driver
         SetStandDown(why);
         if (Current == Cam.Off || why is not null)
         {
-            if (why is not null && Access.WasdViewOn()) ForgetLens();   // 0.6.1: WASD's view owns the lens: never handed back over it
-            else HandBack(cam, quiet: Shots.Active);
+            // HandBack only writes s_gameFov back when cam.FieldOfView is still s_ourFov (never over a view mod's lens),
+            // and clears our roll: without this, a telephoto camera (e.g. PixelIsometric 15 deg) left its lens on the camera
+            // during WASD's settle frame, poisoning WASD's saved game lens and our BaseFov on return.
+            HandBack(cam, quiet: Shots.Active);
             s_pitch = float.NaN;
             s_kv = KeepView.State.Home;
             (s_kvShownExtra, s_kvShownZoom) = (0, 1);
